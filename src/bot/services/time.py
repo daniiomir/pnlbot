@@ -16,4 +16,11 @@ def floor_to_minute(dt: datetime) -> datetime:
     return dt.replace(second=0, microsecond=0)
 
 
-__all__ = ["MSK_TZ", "now_msk", "floor_to_minute"]
+def floor_to_3_minutes(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=MSK_TZ)
+    minute = (dt.minute // 3) * 3
+    return dt.replace(minute=minute, second=0, microsecond=0)
+
+
+__all__ = ["MSK_TZ", "now_msk", "floor_to_minute", "floor_to_3_minutes"]

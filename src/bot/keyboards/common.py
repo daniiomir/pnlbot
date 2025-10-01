@@ -50,3 +50,9 @@ def channels_kb(
     rows.append([InlineKeyboardButton(text="Без канала (общая)", callback_data="ch_general")])
     rows.append([InlineKeyboardButton(text="Готово", callback_data="ch_done")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def skip_kb(callback_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data=callback_data)]]
+    )

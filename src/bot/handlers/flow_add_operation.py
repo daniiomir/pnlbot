@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy.exc import IntegrityError
 
-from bot.keyboards.common import operation_type_kb, yes_no_kb, categories_kb, channels_kb
+from bot.keyboards.common import operation_type_kb, yes_no_kb, categories_kb, channels_kb, skip_kb
 from bot.types.enums import OperationType, INCOME_CATEGORY_CODES, EXPENSE_CATEGORY_CODES
 from bot.services.parsing import parse_amount_rub_to_kop, AmountParseError
 from bot.services.time import now_msk
@@ -30,6 +30,8 @@ class AddOpStates(StatesGroup):
     choosing_category = State()
     entering_reason = State()
     entering_amount = State()
+    entering_receipt = State()
+    entering_comment = State()
     confirming = State()
 
 
@@ -41,12 +43,60 @@ class AddOpData:
     category_id: int | None = None
     category_code: str | None = None
     free_text_reason: str | None = None
+    receipt_url: str | None = None
+    comment: str | None = None
     amount_kop: int | None = None
+
+def _format_channel_titles(channel_ids: list[int]) -> str:
+    if not channel_ids:
+        return "—"
+    with session_scope() as s:
+        q = s.query(Channel).filter(Channel.id.in_(channel_ids)).all()
+        by_id: dict[int, str] = {ch.id: (ch.title or str(ch.id)) for ch in q}
+    titles = [by_id.get(cid, str(cid)) for cid in channel_ids]
+    return ", ".join(titles)
+
+
 def _channels_prompt(selected: list[int]) -> str:
     if selected:
-        return "Выберите каналы (мультивыбор), затем нажмите Готово:\nВыбрано: " + \
-               ", ".join(map(str, selected))
+        return (
+            "Выберите каналы (мультивыбор), затем нажмите Готово:\n"
+            f"Выбрано: {_format_channel_titles(selected)}"
+        )
     return "Выберите каналы (мультивыбор), затем нажмите Готово:"
+
+
+async def _show_confirmation(target, state: FSMContext) -> None:
+    data = await state.get_data()
+    op_type = "Доход" if data.get("op_type") == OperationType.INCOME.value else "Расход"
+    channels = data.get("channel_ids") or []
+    cat_name = data.get("category_name")
+    if not cat_name:
+        with session_scope() as s:
+            cat_row = s.query(Category).filter(Category.id == data.get("category_id")).one_or_none()
+            cat_name = cat_row.name if cat_row else data.get("category_code")
+    amount_kop = int(data.get("amount_kop") or 0)
+    rub = amount_kop // 100
+    is_general = data.get("is_general")
+    lines = [
+        f"Тип: {op_type}",
+        f"Каналы: {'общая' if is_general else _format_channel_titles(channels)}",
+        f"Категория: {cat_name}",
+        f"Сумма: {rub} RUB",
+    ]
+    if (data.get("category_code") == "custom") and data.get("free_text_reason"):
+        lines.append(f"Пояснение: {data.get('free_text_reason')}")
+    if data.get("receipt_url"):
+        lines.append(f"Чек: {data.get('receipt_url')}")
+    if data.get("comment"):
+        lines.append(f"Комментарий: {data.get('comment')}")
+
+    await state.set_state(AddOpStates.confirming)
+    # target can be Message or CallbackQuery.message
+    if hasattr(target, "answer"):
+        await target.answer("\n".join(lines), reply_markup=yes_no_kb())
+    else:
+        await target.edit_text("\n".join(lines), reply_markup=yes_no_kb())
 
 
 @router.message(Command("add"))
@@ -105,7 +155,7 @@ async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.answer("Нет такой категории")
             return
         cat_code = cat.code
-        await state.update_data(category_id=cat.id, category_code=cat_code)
+        await state.update_data(category_id=cat.id, category_code=cat_code, category_name=cat.name)
 
     if cat_code == "custom":
         await state.set_state(AddOpStates.entering_reason)
@@ -135,7 +185,7 @@ async def choose_category_any(callback: CallbackQuery, state: FSMContext) -> Non
 async def choose_general(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(is_general=True, channel_ids=[])
     await state.set_state(AddOpStates.entering_amount)
-    await callback.message.edit_text("Введите сумму в рублях (целое число):")
+    await callback.message.edit_text("Введите сумму, например: 1200, 1200.50 или 1 200,50:")
     await callback.answer()
 
 
@@ -170,7 +220,7 @@ async def channels_done(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Выберите хотя бы один канал или 'Без канала'", show_alert=True)
         return
     await state.set_state(AddOpStates.entering_amount)
-    await callback.message.edit_text("Введите сумму в рублях (целое число):")
+    await callback.message.edit_text("Введите сумму, например: 1200, 1200.50 или 1 200,50:")
     await callback.answer()
 
 
@@ -199,22 +249,45 @@ async def enter_amount(message: Message, state: FSMContext) -> None:
         await message.answer(str(e))
         return
     await state.update_data(amount_kop=amount_kop)
-    data = await state.get_data()
-    op_type = "Доход" if data.get("op_type") == OperationType.INCOME.value else "Расход"
-    channels = data.get("channel_ids") or []
-    cat_code = data.get("category_code")
-    rub = amount_kop // 100
-    is_general = data.get("is_general")
-    lines = [
-        f"Тип: {op_type}",
-        f"Каналы: {'общая' if is_general else (', '.join(map(str, channels)) or '—')}",
-        f"Категория: {cat_code}",
-        f"Сумма: {rub} RUB",
-    ]
-    if cat_code == "custom":
-        lines.append(f"Пояснение: {data.get('free_text_reason')}")
-    await state.set_state(AddOpStates.confirming)
-    await message.answer("\n".join(lines), reply_markup=yes_no_kb())
+    await state.set_state(AddOpStates.entering_receipt)
+    await message.answer(
+        "Добавьте ссылку на чек (URL) или нажмите Пропустить:",
+        reply_markup=skip_kb("skip:receipt"),
+    )
+
+
+@router.callback_query(F.data == "skip:receipt", AddOpStates.entering_receipt)
+async def skip_receipt(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(receipt_url=None)
+    await state.set_state(AddOpStates.entering_comment)
+    await callback.message.edit_text(
+        "Добавьте комментарий или нажмите Пропустить:", reply_markup=skip_kb("skip:comment")
+    )
+    await callback.answer()
+
+
+@router.message(AddOpStates.entering_receipt)
+async def enter_receipt(message: Message, state: FSMContext) -> None:
+    url = (message.text or "").strip()
+    await state.update_data(receipt_url=url or None)
+    await state.set_state(AddOpStates.entering_comment)
+    await message.answer(
+        "Добавьте комментарий или нажмите Пропустить:", reply_markup=skip_kb("skip:comment")
+    )
+
+
+@router.callback_query(F.data == "skip:comment", AddOpStates.entering_comment)
+async def skip_comment(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(comment=None)
+    await _show_confirmation(callback.message, state)
+    await callback.answer()
+
+
+@router.message(AddOpStates.entering_comment)
+async def enter_comment(message: Message, state: FSMContext) -> None:
+    comment = (message.text or "").strip()
+    await state.update_data(comment=comment or None)
+    await _show_confirmation(message, state)
 
 
 @router.callback_query(F.data == "cancel", AddOpStates.confirming)
@@ -250,7 +323,9 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
             category_id=cat.id,
             amount_kop=int(data["amount_kop"]),
             currency="RUB",
-            free_text_reason=data.get("free_text_reason"),
+            free_text_reason=(data.get("free_text_reason") or None),
+            receipt_url=(data.get("receipt_url") or None),
+            comment=(data.get("comment") or None),
             created_by_user_id=db_user.id,
             is_general=bool(data.get("is_general")),
             dedup_hash=dedup,
@@ -273,7 +348,7 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
                 rub = existing.amount_kop // 100
                 await callback.message.edit_text(
                     f"Дубликат: уже есть операция #{existing.id}\n"
-                    f"Тип: {op_type_txt}\nКатегория: {cat.code}\n"
+                    f"Тип: {op_type_txt}\nКатегория: {cat.name}\n"
                     f"Сумма: {rub} RUB\nОбщая: {'да' if existing.is_general else 'нет'}\n"
                     f"Каналов: {channels_count}"
                 )
@@ -283,8 +358,6 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.answer()
             return
 
-        op_id = op.id
-
     await state.clear()
-    await callback.message.edit_text(f"Операция сохранена. Номер: {op_id}")
+    await callback.message.edit_text("Операция сохранена.")
     await callback.answer()

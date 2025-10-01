@@ -4,7 +4,7 @@ import hashlib
 from typing import Iterable
 from datetime import datetime
 
-from .time import floor_to_minute
+from .time import floor_to_3_minutes
 
 
 def build_dedup_hash(
@@ -16,7 +16,7 @@ def build_dedup_hash(
     is_general: bool,
     created_at: datetime,
 ) -> str:
-    minute_dt = floor_to_minute(created_at)
+    minute_dt = floor_to_3_minutes(created_at)
     minute_str = minute_dt.isoformat()
     channels_sorted = ",".join(str(cid) for cid in sorted(set(channel_ids)))
     payload = "|".join(

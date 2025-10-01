@@ -66,6 +66,8 @@ class Operation(Base):
     amount_kop: Mapped[int] = mapped_column(BigInteger, nullable=False)
     currency: Mapped[str] = mapped_column(CHAR(3), nullable=False, default="RUB", server_default="RUB")
     free_text_reason: Mapped[str | None] = mapped_column(Text)
+    receipt_url: Mapped[str | None] = mapped_column(Text)
+    comment: Mapped[str | None] = mapped_column(Text)
     created_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("finance.users.id"), nullable=False)
     is_general: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     dedup_hash: Mapped[str] = mapped_column(Text, nullable=False)
