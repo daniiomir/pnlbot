@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pnlbot"
+version = "0.1.0"
+description = "Telegram bot for income/expense operations"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "aiogram==3.*",
+  "SQLAlchemy>=2.0,<3.0",
+  "alembic>=1.13,<2.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "pydantic>=2.6,<3.0",
+  "pytz>=2024.1"
+]
+
+[project.scripts]
+pnlbot = "bot.main:main"
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q"
+pythonpath = ["src"]
