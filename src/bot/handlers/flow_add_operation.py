@@ -106,6 +106,42 @@ async def cmd_add(message: Message, state: FSMContext) -> None:
     await message.answer("Выберите тип операции:", reply_markup=operation_type_kb())
 
 
+@router.message(Command("in"))
+async def cmd_in(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await state.update_data(op_type=OperationType.INCOME.value)
+    with session_scope() as s:
+        cats = (
+            s.query(Category)
+            .filter(Category.is_active.is_(True))
+            .order_by(Category.name)
+            .all()
+        )
+        items: list[tuple[int, str, str]] = [
+            (c.id, c.name, c.code) for c in cats if c.code in INCOME_CATEGORY_CODES
+        ]
+    await state.set_state(AddOpStates.choosing_category)
+    await message.answer("Выберите категорию дохода:", reply_markup=categories_kb(items))
+
+
+@router.message(Command("out"))
+async def cmd_out(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await state.update_data(op_type=OperationType.EXPENSE.value)
+    with session_scope() as s:
+        cats = (
+            s.query(Category)
+            .filter(Category.is_active.is_(True))
+            .order_by(Category.name)
+            .all()
+        )
+        items: list[tuple[int, str, str]] = [
+            (c.id, c.name, c.code) for c in cats if c.code in EXPENSE_CATEGORY_CODES
+        ]
+    await state.set_state(AddOpStates.choosing_category)
+    await message.answer("Выберите категорию расхода:", reply_markup=categories_kb(items))
+
+
 @router.callback_query(F.data.startswith("op_type:"), AddOpStates.choosing_type)
 async def choose_type(callback: CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":", 1)[1]
