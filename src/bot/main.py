@@ -49,7 +49,8 @@ def run_migrations(settings: Settings) -> None:
     alembic_ini = os.path.join(project_root, "alembic.ini")
     cfg = Config(alembic_ini)
     cfg.set_main_option("script_location", os.path.join(project_root, "src/bot/db/migrations"))
-    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    # Escape '%' for configparser interpolation in alembic Config
+    cfg.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
     os.environ.setdefault("DATABASE_URL", settings.database_url)
     logger.info("Running migrations via Alembic API")
     command.upgrade(cfg, "head")
