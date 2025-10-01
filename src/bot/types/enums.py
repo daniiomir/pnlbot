@@ -16,5 +16,14 @@ DEFAULT_CATEGORY_SEED = [
     ("custom", "Ручной ввод"),
 ]
 
+# Category groups used for UI filtering
+INCOME_CATEGORY_CODES = {"ad_revenue", "custom"}
+EXPENSE_CATEGORY_CODES = {"admins_pay", "ad_purchase", "personal_invest", "custom"}
 
-__all__ = ["OperationType", "DEFAULT_CATEGORY_SEED"]
+
+__all__ = [
+    "OperationType",
+    "DEFAULT_CATEGORY_SEED",
+    "INCOME_CATEGORY_CODES",
+    "EXPENSE_CATEGORY_CODES",
+]

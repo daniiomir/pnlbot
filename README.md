@@ -24,7 +24,7 @@ export DB_PASSWORD=pass
 export WHITELIST_USER_IDS="12345,67890"
 export TZ=Europe/Moscow
 alembic upgrade head
-python bot.py
+PYTHONPATH=src python -m bot.main
 ```
 
 ## Docker

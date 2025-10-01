@@ -11,7 +11,6 @@ venv:
 
 run:
 	@if [ ! -d $(VENV) ]; then echo "Create venv first: make venv"; exit 1; fi
-	# Load env vars if .env exists
 	set -a; [ -f .env ] && . ./.env || true; set +a; \
 	$(PYTHON) -m alembic upgrade head; \
-	$(PYTHON) bot.py
+	PYTHONPATH=src $(PYTHON) -m bot.main

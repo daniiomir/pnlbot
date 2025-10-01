@@ -1,12 +1,35 @@
 from __future__ import annotations
 
 import os
+import sys
+import importlib.util
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
+# Ensure src/ on path
+SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
 
-from bot.db.models import Base  # noqa: F401
+# Load .env from project root if present
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv(os.path.join(os.path.dirname(SRC_PATH), ".env"))
+except Exception:
+    pass
+
+from alembic import context
+from sqlalchemy import engine_from_config, pool, text
+
+# Load models module explicitly from file to avoid name collision with root-level bot.py
+MODELS_PATH = os.path.join(SRC_PATH, "bot", "db", "models.py")
+spec = importlib.util.spec_from_file_location("app_models", MODELS_PATH)
+if spec is None or spec.loader is None:
+    raise RuntimeError("Failed to load models module for Alembic")
+models = importlib.util.module_from_spec(spec)
+# Register module so SQLAlchemy can resolve typing annotations against module name
+sys.modules["app_models"] = models
+spec.loader.exec_module(models)  # type: ignore[arg-type]
+Base = models.Base  # type: ignore[attr-defined]
 
 config = context.config
 
@@ -18,7 +41,6 @@ def get_url() -> str:
     url = os.getenv("DATABASE_URL", "")
     if url:
         return url
-    # Compose from separate env vars if present
     host = os.getenv("DB_HOST")
     name = os.getenv("DB_NAME")
     user = os.getenv("DB_USER")
@@ -26,14 +48,16 @@ def get_url() -> str:
     port = os.getenv("DB_PORT", "5432")
     if host and name and user and password:
         return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{name}"
-    return ""
+    raise RuntimeError(
+        "Не задана строка подключения к БД. Укажите DATABASE_URL или DB_HOST, DB_NAME, DB_USER, DB_PASSWORD (и DB_PORT)."
+    )
 
 
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = get_url() or config.get_main_option("sqlalchemy.url")
+    url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -73,7 +97,7 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
-            connection.execute("CREATE SCHEMA IF NOT EXISTS finance")
+            connection.execute(text("CREATE SCHEMA IF NOT EXISTS finance"))
             context.run_migrations()
 
 

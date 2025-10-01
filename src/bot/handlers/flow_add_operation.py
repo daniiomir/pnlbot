@@ -11,8 +11,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy.exc import IntegrityError
 
-from bot.keyboards.common import operation_type_kb, yes_no_kb
-from bot.types.enums import OperationType
+from bot.keyboards.common import operation_type_kb, yes_no_kb, categories_kb, channels_kb
+from bot.types.enums import OperationType, INCOME_CATEGORY_CODES, EXPENSE_CATEGORY_CODES
 from bot.services.parsing import parse_amount_rub_to_kop, AmountParseError
 from bot.services.time import now_msk
 from bot.services.dedup import build_dedup_hash
@@ -46,6 +46,7 @@ class AddOpData:
 
 @router.message(Command("add"))
 async def cmd_add(message: Message, state: FSMContext) -> None:
+    await state.clear()
     await state.set_state(AddOpStates.choosing_type)
     await message.answer("Выберите тип операции:", reply_markup=operation_type_kb())
 
@@ -55,73 +56,98 @@ async def choose_type(callback: CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":", 1)[1]
     if action == "income":
         await state.update_data(op_type=OperationType.INCOME.value)
+        filter_codes = INCOME_CATEGORY_CODES
+        title = "Выберите категорию дохода:"
     else:
         await state.update_data(op_type=OperationType.EXPENSE.value)
-    await state.set_state(AddOpStates.choosing_channels)
-    await callback.message.edit_text(
-        "Укажите каналы (введите chat_id через пробел) или напишите 0 для общей операции"
-    )
+        filter_codes = EXPENSE_CATEGORY_CODES
+        title = "Выберите категорию расхода:"
+
+    with session_scope() as s:
+        cats = (
+            s.query(Category)
+            .filter(Category.is_active.is_(True))
+            .order_by(Category.name)
+            .all()
+        )
+        items: list[tuple[int, str, str]] = [
+            (c.id, c.name, c.code) for c in cats if c.code in filter_codes
+        ]
+    await state.set_state(AddOpStates.choosing_category)
+    await callback.message.edit_text(title, reply_markup=categories_kb(items))
     await callback.answer()
 
 
-@router.message(AddOpStates.choosing_channels)
-async def input_channels(message: Message, state: FSMContext) -> None:
-    text = message.text or ""
-    text = text.strip()
-    is_general = text == "0"
-    channel_ids: List[int] = []
-    if not is_general:
-        for part in text.split():
-            if not part.isdigit():
-                await message.answer("ID каналов должны быть числами. Введите ещё раз или 0.")
-                return
-            channel_ids.append(int(part))
-
-    # Validate channels exist or create
-    with session_scope() as s:
-        existing_map: dict[int, int] = {}
-        if channel_ids:
-            q = s.query(Channel).filter(Channel.tg_chat_id.in_(channel_ids))
-            for ch in q.all():
-                existing_map[ch.tg_chat_id] = ch.id
-        for cid in channel_ids:
-            if cid not in existing_map:
-                ch = Channel(tg_chat_id=cid, title=None, username=None, created_at=now_msk())
-                s.add(ch)
-                s.flush()
-                existing_map[cid] = ch.id
-        selected_channel_db_ids = [existing_map[cid] for cid in channel_ids]
-
-    await state.update_data(is_general=is_general, channel_ids=selected_channel_db_ids)
-    await state.set_state(AddOpStates.choosing_category)
-
-    # Show categories
-    with session_scope() as s:
-        cats = s.query(Category).filter(Category.is_active.is_(True)).order_by(Category.name).all()
-        lines = [f"{c.id}. {c.name} ({c.code})" for c in cats]
-    await message.answer(
-        "Выберите категорию, отправив её номер:\n" + "\n".join(lines)
-    )
+@router.callback_query(F.data == "back:type")
+async def back_to_type(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AddOpStates.choosing_type)
+    await callback.message.edit_text("Выберите тип операции:", reply_markup=operation_type_kb())
+    await callback.answer()
 
 
-@router.message(AddOpStates.choosing_category)
-async def choose_category(message: Message, state: FSMContext) -> None:
-    if not (message.text and message.text.isdigit()):
-        await message.answer("Введите номер категории из списка.")
+@router.callback_query(F.data.startswith("cat:"), AddOpStates.choosing_category)
+async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
+    _, id_str = callback.data.split(":", 1)
+    if not id_str.isdigit():
+        await callback.answer("Некорректная категория")
         return
-    cat_id = int(message.text)
+    cat_id = int(id_str)
     with session_scope() as s:
         cat = s.query(Category).filter(Category.id == cat_id).one_or_none()
         if not cat:
-            await message.answer("Нет такой категории. Повторите ввод.")
+            await callback.answer("Нет такой категории")
             return
         await state.update_data(category_id=cat.id, category_code=cat.code)
+
     if cat.code == "custom":
         await state.set_state(AddOpStates.entering_reason)
-        await message.answer("Опишите назначение операции (свободный текст):")
+        await callback.message.edit_text("Опишите назначение операции (свободный текст):")
     else:
-        await state.set_state(AddOpStates.entering_amount)
-        await message.answer("Введите сумму в рублях (целое число):")
+        await state.set_state(AddOpStates.choosing_channels)
+        with session_scope() as s:
+            q = s.query(Channel).order_by(Channel.created_at.desc()).limit(25)
+            ch_items = [(ch.id, ch.title) for ch in q.all()]
+        await callback.message.edit_text(
+            "Выберите каналы (мультивыбор), затем нажмите Готово:",
+            reply_markup=channels_kb(ch_items),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ch_general", AddOpStates.choosing_channels)
+async def choose_general(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(is_general=True, channel_ids=[])
+    await state.set_state(AddOpStates.entering_amount)
+    await callback.message.edit_text("Введите сумму в рублях (целое число):")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ch:"), AddOpStates.choosing_channels)
+async def toggle_channel(callback: CallbackQuery, state: FSMContext) -> None:
+    _, id_str = callback.data.split(":", 1)
+    if not id_str.isdigit():
+        await callback.answer("Некорректный канал")
+        return
+    ch_id = int(id_str)
+    data = await state.get_data()
+    selected = list(data.get("channel_ids") or [])
+    if ch_id in selected:
+        selected.remove(ch_id)
+    else:
+        selected.append(ch_id)
+    await state.update_data(channel_ids=selected, is_general=False)
+    await callback.answer("Выбрано")
+
+
+@router.callback_query(F.data == "ch_done", AddOpStates.choosing_channels)
+async def channels_done(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    if not data.get("is_general") and not data.get("channel_ids"):
+        await callback.answer("Выберите хотя бы один канал или 'Без канала'", show_alert=True)
+        return
+    await state.set_state(AddOpStates.entering_amount)
+    await callback.message.edit_text("Введите сумму в рублях (целое число):")
+    await callback.answer()
 
 
 @router.message(AddOpStates.entering_reason)
@@ -131,8 +157,14 @@ async def enter_reason(message: Message, state: FSMContext) -> None:
         await message.answer("Пояснение обязательно. Введите текст:")
         return
     await state.update_data(free_text_reason=text)
-    await state.set_state(AddOpStates.entering_amount)
-    await message.answer("Введите сумму в рублях (целое число):")
+    await state.set_state(AddOpStates.choosing_channels)
+    with session_scope() as s:
+        q = s.query(Channel).order_by(Channel.created_at.desc()).limit(25)
+        ch_items = [(ch.id, ch.title) for ch in q.all()]
+    await message.answer(
+        "Выберите каналы (мультивыбор), затем нажмите Готово:",
+        reply_markup=channels_kb(ch_items),
+    )
 
 
 @router.message(AddOpStates.entering_amount)
@@ -209,7 +241,6 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
             s.rollback()
             existing = s.query(Operation).filter(Operation.dedup_hash == dedup).one_or_none()
             if existing:
-                # get channels count
                 res = s.execute(
                     OperationChannel.select().where(OperationChannel.c.operation_id == existing.id)
                 )
@@ -219,7 +250,7 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
                 await callback.message.edit_text(
                     f"Дубликат: уже есть операция #{existing.id}\n"
                     f"Тип: {op_type_txt}\nКатегория: {cat.code}\n"
-                    f"Сумма: {rub} RUB\nОбщая: {"да" if existing.is_general else "нет"}\n"
+                    f"Сумма: {rub} RUB\nОбщая: {'да' if existing.is_general else 'нет'}\n"
                     f"Каналов: {channels_count}"
                 )
             else:

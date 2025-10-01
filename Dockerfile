@@ -16,7 +16,6 @@ WORKDIR /app
 
 COPY pyproject.toml README.md alembic.ini ./
 COPY src ./src
-COPY bot.py ./bot.py
 
 RUN pip install --no-cache-dir -U pip \
     && pip install --no-cache-dir -e .
@@ -24,4 +23,6 @@ RUN pip install --no-cache-dir -U pip \
 RUN useradd -m appuser
 USER appuser
 
-ENTRYPOINT ["python", "bot.py"]
+ENV PYTHONPATH=/app/src
+
+ENTRYPOINT ["python", "-m", "bot.main"]
