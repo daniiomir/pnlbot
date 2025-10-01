@@ -25,4 +25,6 @@ USER appuser
 
 ENV PYTHONPATH=/app/src
 
+EXPOSE 8080
+
 ENTRYPOINT ["python", "-m", "bot.main"]
