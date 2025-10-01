@@ -17,8 +17,12 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.settings import Settings, setup_logging
-from bot.middlewares.whitelist import WhitelistMiddleware
-from bot.middlewares.rate_limit import RateLimitMiddleware
+from bot.middlewares import (
+    ErrorLoggingMiddleware,
+    LoggingMiddleware,
+    RateLimitMiddleware,
+    WhitelistMiddleware,
+)
 from bot.handlers import commands as commands_handlers
 from bot.handlers import flow_add_operation as flow_handlers
 from bot.db.base import init_engine, ensure_schema, session_scope
@@ -103,10 +107,29 @@ async def main() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher(storage=storage)
 
-    dp.message.middleware(WhitelistMiddleware(settings))
-    dp.callback_query.middleware(WhitelistMiddleware(settings))
+    # Middlewares order: error logging -> logging -> rate limit -> whitelist
+    # Update-level middlewares to ensure we log every incoming update
+    dp.update.middleware(ErrorLoggingMiddleware())
+    dp.update.middleware(LoggingMiddleware())
+
+    # Fallback errors handler at dispatcher level (logs any unhandled exceptions)
+    async def _errors_handler(event, exception):  # type: ignore[no-redef]
+        logging.getLogger(__name__).exception("Unhandled error: %s", exception)
+        logging.getLogger().exception("Unhandled error (root): %s", exception)
+        return True
+
+
+    dp.errors.register(_errors_handler)  # type: ignore[attr-defined]
+
+
+    dp.message.middleware(ErrorLoggingMiddleware())
+    dp.callback_query.middleware(ErrorLoggingMiddleware())
+    dp.message.middleware(LoggingMiddleware())
+    dp.callback_query.middleware(LoggingMiddleware())
     dp.message.middleware(RateLimitMiddleware())
     dp.callback_query.middleware(RateLimitMiddleware())
+    dp.message.middleware(WhitelistMiddleware(settings))
+    dp.callback_query.middleware(WhitelistMiddleware(settings))
 
     dp.include_router(commands_handlers.router)
     dp.include_router(flow_handlers.router)
@@ -126,22 +149,12 @@ async def main() -> None:
         pass
 
     try:
+        # Ensure no webhook blocks polling
+        with suppress(Exception):
+            await bot.delete_webhook(drop_pending_updates=False)
         await on_startup(dp, settings)
-        polling = asyncio.create_task(
-            dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-        )
-        # wait for either stop signal or polling finishes
-        done, pending = await asyncio.wait(
-            {polling, asyncio.create_task(stop_event.wait())},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if stop_event.is_set():
-            with suppress(Exception):
-                dp.stop_polling()
-        if not polling.done():
-            polling.cancel()
-            with suppress(asyncio.CancelledError):
-                await polling
+        # Run polling synchronously so stdout/file logging flushes in-order
+        await dp.start_polling(bot)
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down...")
     finally:

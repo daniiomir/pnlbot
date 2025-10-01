@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List
 
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
@@ -42,6 +42,11 @@ class AddOpData:
     category_code: str | None = None
     free_text_reason: str | None = None
     amount_kop: int | None = None
+def _channels_prompt(selected: list[int]) -> str:
+    if selected:
+        return "Выберите каналы (мультивыбор), затем нажмите Готово:\nВыбрано: " + \
+               ", ".join(map(str, selected))
+    return "Выберите каналы (мультивыбор), затем нажмите Готово:"
 
 
 @router.message(Command("add"))
@@ -80,6 +85,7 @@ async def choose_type(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "back:type")
 async def back_to_type(callback: CallbackQuery, state: FSMContext) -> None:
+    logger.info("back_to_type from state=%s", await state.get_state())
     await state.set_state(AddOpStates.choosing_type)
     await callback.message.edit_text("Выберите тип операции:", reply_markup=operation_type_kb())
     await callback.answer()
@@ -87,6 +93,7 @@ async def back_to_type(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("cat:"), AddOpStates.choosing_category)
 async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
+    logger.info("choose_category payload=%s state=%s", callback.data, await state.get_state())
     _, id_str = callback.data.split(":", 1)
     if not id_str.isdigit():
         await callback.answer("Некорректная категория")
@@ -97,9 +104,10 @@ async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
         if not cat:
             await callback.answer("Нет такой категории")
             return
-        await state.update_data(category_id=cat.id, category_code=cat.code)
+        cat_code = cat.code
+        await state.update_data(category_id=cat.id, category_code=cat_code)
 
-    if cat.code == "custom":
+    if cat_code == "custom":
         await state.set_state(AddOpStates.entering_reason)
         await callback.message.edit_text("Опишите назначение операции (свободный текст):")
     else:
@@ -107,11 +115,20 @@ async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
         with session_scope() as s:
             q = s.query(Channel).order_by(Channel.created_at.desc()).limit(25)
             ch_items = [(ch.id, ch.title) for ch in q.all()]
+        data = await state.get_data()
+        selected = list(data.get("channel_ids") or [])
         await callback.message.edit_text(
-            "Выберите каналы (мультивыбор), затем нажмите Готово:",
-            reply_markup=channels_kb(ch_items),
+            _channels_prompt(selected),
+            reply_markup=channels_kb(ch_items, selected_ids=selected),
         )
     await callback.answer()
+
+
+# Fallback: handle category press only when not in the expected state
+@router.callback_query(F.data.startswith("cat:"), ~StateFilter(AddOpStates.choosing_category))
+async def choose_category_any(callback: CallbackQuery, state: FSMContext) -> None:
+    logger.info("choose_category_any payload=%s state=%s", callback.data, await state.get_state())
+    await choose_category(callback, state)
 
 
 @router.callback_query(F.data == "ch_general", AddOpStates.choosing_channels)
@@ -136,7 +153,14 @@ async def toggle_channel(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         selected.append(ch_id)
     await state.update_data(channel_ids=selected, is_general=False)
-    await callback.answer("Выбрано")
+    with session_scope() as s:
+        q = s.query(Channel).order_by(Channel.created_at.desc()).limit(25)
+        ch_items = [(ch.id, ch.title) for ch in q.all()]
+    await callback.message.edit_text(
+        _channels_prompt(selected),
+        reply_markup=channels_kb(ch_items, selected_ids=selected),
+    )
+    await callback.answer("Готово")
 
 
 @router.callback_query(F.data == "ch_done", AddOpStates.choosing_channels)

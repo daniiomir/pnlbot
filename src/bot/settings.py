@@ -63,16 +63,45 @@ class Settings:
 
 def setup_logging(level_name: str = "INFO") -> None:
     level = getattr(logging, level_name.upper(), logging.INFO)
-    handler = logging.StreamHandler(stream=sys.stdout)
     formatter = logging.Formatter(
         fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
-    handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler(stream=sys.stdout)
+    stream_handler.setFormatter(formatter)
+
+    # Ensure logs directory exists
+    logs_dir = os.path.join(os.getcwd(), "logs")
+    try:
+        os.makedirs(logs_dir, exist_ok=True)
+    except Exception:
+        pass
+    file_path = os.path.join(logs_dir, "pnlbot.log")
+    try:
+        file_handler = logging.FileHandler(file_path, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+    except Exception:
+        file_handler = None
+
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()
-    root.addHandler(handler)
+    root.addHandler(stream_handler)
+    if file_handler is not None:
+        root.addHandler(file_handler)
+
+    # Ensure verbose logs from aiogram are visible
+    for logger_name in (
+        "aiogram",
+        "aiogram.event",
+        "aiogram.dispatcher",
+        "aiogram.bot.api",
+    ):
+        logging.getLogger(logger_name).setLevel(level)
+
+    # Route warnings through logging
+    logging.captureWarnings(True)
 
 
 __all__ = ["Settings", "setup_logging"]

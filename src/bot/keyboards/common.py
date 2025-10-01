@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Iterable as _Iterable
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -34,11 +34,18 @@ def categories_kb(items: list[tuple[int, str, str]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def channels_kb(channels: Iterable[tuple[int, str | None]], page: int = 1) -> InlineKeyboardMarkup:
+def channels_kb(
+    channels: Iterable[tuple[int, str | None]],
+    selected_ids: _Iterable[int] | None = None,
+    page: int = 1,
+) -> InlineKeyboardMarkup:
     # channels: (id, title)
+    selected_set = set(selected_ids or [])
     rows: list[list[InlineKeyboardButton]] = []
     for ch_id, title in channels:
         text = title or str(ch_id)
+        if ch_id in selected_set:
+            text = f"✅ {text}"
         rows.append([InlineKeyboardButton(text=text, callback_data=f"ch:{ch_id}")])
     rows.append([InlineKeyboardButton(text="Без канала (общая)", callback_data="ch_general")])
     rows.append([InlineKeyboardButton(text="Готово", callback_data="ch_done")])

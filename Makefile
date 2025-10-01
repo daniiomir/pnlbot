@@ -12,5 +12,5 @@ venv:
 run:
 	@if [ ! -d $(VENV) ]; then echo "Create venv first: make venv"; exit 1; fi
 	set -a; [ -f .env ] && . ./.env || true; set +a; \
-	$(PYTHON) -m alembic upgrade head; \
-	PYTHONPATH=src $(PYTHON) -m bot.main
+	LOG_LEVEL=$${LOG_LEVEL:-DEBUG} PYTHONUNBUFFERED=1 $(PYTHON) -m alembic upgrade head; \
+	PYTHONPATH=src LOG_LEVEL=$${LOG_LEVEL:-DEBUG} PYTHONUNBUFFERED=1 $(PYTHON) -m bot.main
