@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 from telethon import TelegramClient
-from telethon.sessions import MemorySession
+from telethon.sessions import StringSession
 
 from bot.settings import Settings
 
@@ -19,8 +19,11 @@ async def init_telethon(settings: Settings) -> TelegramClient:
     global _client
     if _client is not None:
         return _client
-    # Use in-memory session (no persistence on disk)
-    client = TelegramClient(MemorySession(), settings.telethon_api_id, settings.telethon_api_hash)
+    # Require StringSession from env; no fallbacks
+    if not settings.telethon_session_string:
+        raise RuntimeError("TELETHON_SESSION_STRING is required and must be set")
+    session = StringSession(settings.telethon_session_string)
+    client = TelegramClient(session, settings.telethon_api_id, settings.telethon_api_hash)
     await client.connect()
     if not await client.is_user_authorized():
         logger.error("Telethon session is not authorized. Interactive login is required to proceed.")

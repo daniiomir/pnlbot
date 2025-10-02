@@ -59,6 +59,7 @@ class Settings:
     telethon_api_id: int
     telethon_api_hash: str
     telethon_session_path: str
+    telethon_session_string: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -95,6 +96,7 @@ class Settings:
         telethon_api_id = int(telethon_api_id_str)
         telethon_api_hash = _get_env("TELETHON_API_HASH", required=True)
         telethon_session_path = _get_env("TELETHON_SESSION_PATH", default="telethon.session")
+        telethon_session_string = _get_env("TELETHON_SESSION_STRING", default="").strip() or None
         return cls(
             bot_token=bot_token,
             database_url=database_url,
@@ -104,6 +106,7 @@ class Settings:
             telethon_api_id=telethon_api_id,
             telethon_api_hash=telethon_api_hash,
             telethon_session_path=telethon_session_path,
+            telethon_session_string=telethon_session_string,
         )
 
 
