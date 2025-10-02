@@ -15,7 +15,9 @@ dependencies = [
   "psycopg[binary]>=3.2,<4.0",
   "pydantic>=2.6,<3.0",
   "pytz>=2024.1",
-  "python-dotenv>=1.0,<2.0"
+  "python-dotenv>=1.0,<2.0",
+  "Telethon>=1.36,<2.0",
+  "APScheduler>=3.10,<4.0"
 ]
 
 [project.scripts]

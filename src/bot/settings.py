@@ -56,6 +56,9 @@ class Settings:
     whitelist_user_ids: Set[int]
     tz: str
     log_level: str
+    telethon_api_id: int
+    telethon_api_hash: str
+    telethon_session_path: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -86,12 +89,21 @@ class Settings:
         whitelist_user_ids = _parse_whitelist(_get_env("WHITELIST_USER_IDS", required=True))
         tz = _get_env("TZ", default="Europe/Moscow")
         log_level = _get_env("LOG_LEVEL", default="INFO").upper()
+        telethon_api_id_str = _get_env("TELETHON_API_ID", required=True)
+        if not telethon_api_id_str.isdigit():
+            raise RuntimeError("TELETHON_API_ID должен быть числом")
+        telethon_api_id = int(telethon_api_id_str)
+        telethon_api_hash = _get_env("TELETHON_API_HASH", required=True)
+        telethon_session_path = _get_env("TELETHON_SESSION_PATH", default="telethon.session")
         return cls(
             bot_token=bot_token,
             database_url=database_url,
             whitelist_user_ids=whitelist_user_ids,
             tz=tz,
             log_level=log_level,
+            telethon_api_id=telethon_api_id,
+            telethon_api_hash=telethon_api_hash,
+            telethon_session_path=telethon_session_path,
         )
 
 

@@ -199,7 +199,12 @@ async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         await state.set_state(AddOpStates.choosing_channels)
         with session_scope() as s:
-            q = s.query(Channel).order_by(Channel.created_at.desc()).limit(25)
+            q = (
+                s.query(Channel)
+                .filter(Channel.is_active.is_(True))
+                .order_by(Channel.created_at.desc())
+                .limit(25)
+            )
             ch_items = [(ch.id, ch.title) for ch in q.all()]
         data = await state.get_data()
         selected = list(data.get("channel_ids") or [])
@@ -240,7 +245,12 @@ async def toggle_channel(callback: CallbackQuery, state: FSMContext) -> None:
         selected.append(ch_id)
     await state.update_data(channel_ids=selected, is_general=False)
     with session_scope() as s:
-        q = s.query(Channel).order_by(Channel.created_at.desc()).limit(25)
+        q = (
+            s.query(Channel)
+            .filter(Channel.is_active.is_(True))
+            .order_by(Channel.created_at.desc())
+            .limit(25)
+        )
         ch_items = [(ch.id, ch.title) for ch in q.all()]
     await callback.message.edit_text(
         _channels_prompt(selected),
@@ -269,7 +279,12 @@ async def enter_reason(message: Message, state: FSMContext) -> None:
     await state.update_data(free_text_reason=text)
     await state.set_state(AddOpStates.choosing_channels)
     with session_scope() as s:
-        q = s.query(Channel).order_by(Channel.created_at.desc()).limit(25)
+        q = (
+            s.query(Channel)
+            .filter(Channel.is_active.is_(True))
+            .order_by(Channel.created_at.desc())
+            .limit(25)
+        )
         ch_items = [(ch.id, ch.title) for ch in q.all()]
     await message.answer(
         "Выберите каналы (мультивыбор), затем нажмите Готово:",

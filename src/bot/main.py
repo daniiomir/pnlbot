@@ -17,6 +17,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.settings import Settings, setup_logging
+from bot.services.mtproto_client import init_telethon, shutdown_telethon
+from bot.services.scheduler import add_daily_job, shutdown_scheduler
 from bot.middlewares import (
     ErrorLoggingMiddleware,
     LoggingMiddleware,
@@ -25,6 +27,7 @@ from bot.middlewares import (
 )
 from bot.handlers import commands as commands_handlers
 from bot.handlers import flow_add_operation as flow_handlers
+from bot.handlers import channels as channels_handlers
 from bot.db.base import init_engine, ensure_schema, session_scope
 from bot.types.enums import DEFAULT_CATEGORY_SEED
 from bot.db.models import Category, Channel
@@ -37,7 +40,9 @@ async def on_startup(dp: Dispatcher, settings: Settings) -> None:
     ensure_schema("finance")
     run_migrations(settings)
     seed_categories()
-    seed_channels()
+    deactivate_legacy_seeded_channels()
+    # Initialize Telethon client
+    await init_telethon(settings)
     logger.info("Bot is ready")
 
 
@@ -66,35 +71,21 @@ def seed_categories() -> None:
         s.flush()
 
 
-def seed_channels() -> None:
-    # Provided list of channels to show in selection UI
-    provided_titles = [
-        "Футбол OnSide",
-        "OnSide: новости футбола",
-        "Футбол OnSide GPT",
-        "PSG: фан-клуб ПСЖ",
-        "Футбол Испании: La Liga",
-        "Футбол России: РПЛ, Кубок",
-    ]
-    # Deterministic synthetic tg_chat_id values for seed (unique, positive)
-    synthetic_ids = [1000000001, 1000000002, 1000000003, 1000000004, 1000000005, 1000000006]
-
+def deactivate_legacy_seeded_channels() -> None:
+    # Deactivate any channels that were not added via new binding flow
+    # Heuristic: channels with added_by_user_id IS NULL are considered legacy
     with session_scope() as s:
-        # Map existing by title to avoid duplicates if partially present
-        existing_by_title: dict[str, int] = {
-            (ch.title or ""): ch.id for ch in s.query(Channel).all()
-        }
-        for idx, title in enumerate(provided_titles):
-            if title in existing_by_title:
-                continue
-            ch = Channel(
-                tg_chat_id=synthetic_ids[idx],
-                title=title,
-                username=None,
-                created_at=now_msk(),
-            )
-            s.add(ch)
-        s.flush()
+        rows = (
+            s.query(Channel)
+            .filter(Channel.added_by_user_id.is_(None), Channel.is_active.is_(True))
+            .all()
+        )
+        changed = 0
+        for ch in rows:
+            ch.is_active = False
+            changed += 1
+        if changed:
+            logger.info("Deactivated %s legacy channels (no added_by_user_id)", changed)
 
 
 async def main() -> None:
@@ -132,8 +123,9 @@ async def main() -> None:
     dp.message.middleware(WhitelistMiddleware(settings))
     dp.callback_query.middleware(WhitelistMiddleware(settings))
 
-    dp.include_router(commands_handlers.router)
-    dp.include_router(flow_handlers.router)
+    dp.include_router(commands_handlers)
+    dp.include_router(flow_handlers)
+    dp.include_router(channels_handlers)
 
     # Graceful shutdown on Ctrl+C / SIGTERM
     stop_event = asyncio.Event()
@@ -154,6 +146,8 @@ async def main() -> None:
         with suppress(Exception):
             await bot.delete_webhook(drop_pending_updates=False)
         await on_startup(dp, settings)
+        # Schedule daily job
+        add_daily_job(bot)
         # Run polling synchronously so stdout/file logging flushes in-order
         await dp.start_polling(bot)
     except KeyboardInterrupt:
@@ -161,6 +155,12 @@ async def main() -> None:
     finally:
         with suppress(Exception):
             await bot.session.close()
+        # Shutdown Telethon
+        with suppress(Exception):
+            await shutdown_telethon()
+        # Shutdown scheduler
+        with suppress(Exception):
+            shutdown_scheduler()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from aiogram import Bot
+
+from bot.services.time import MSK_TZ
+from bot.services.channel_stats import collect_daily_for_all_channels
+
+logger = logging.getLogger(__name__)
+
+_scheduler: AsyncIOScheduler | None = None
+
+
+def start_scheduler() -> AsyncIOScheduler:
+    global _scheduler
+    if _scheduler is not None:
+        return _scheduler
+    scheduler = AsyncIOScheduler(timezone=MSK_TZ)
+    scheduler.start()
+    _scheduler = scheduler
+    logger.info("Scheduler started with tz=%s", MSK_TZ)
+    return scheduler
+
+
+def add_daily_job(bot: Bot) -> None:
+    scheduler = start_scheduler()
+
+    async def _job_wrapper() -> None:
+        try:
+            # Use today's local date for snapshot (at 00:00 job runs for the new day)
+            await collect_daily_for_all_channels(datetime.now(tz=MSK_TZ))
+        except Exception:
+            logger.exception("Daily collection job failed")
+
+    # Run at 00:05 MSK daily to avoid boundary effects
+    trigger = CronTrigger(hour=0, minute=5, timezone=MSK_TZ)
+    scheduler.add_job(_job_wrapper, trigger, id="daily_collect", replace_existing=True)
+    logger.info("Daily job scheduled at 00:05 MSK")
+
+
+def shutdown_scheduler() -> None:
+    global _scheduler
+    if _scheduler is None:
+        return
+    try:
+        _scheduler.shutdown(wait=False)
+    except Exception:
+        logger.exception("Failed to shutdown scheduler")
+    finally:
+        _scheduler = None
+
+

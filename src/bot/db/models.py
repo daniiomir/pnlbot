@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, date
 
 from sqlalchemy import (
     BigInteger,
@@ -28,6 +28,10 @@ class Channel(Base):
     title: Mapped[str | None] = mapped_column(Text)
     username: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    added_by_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("finance.users.id"))
 
 
 class Category(Base):
@@ -83,3 +87,38 @@ OperationChannel = Table(
 
 
 __all__ = ["Base", "Channel", "Category", "User", "Operation", "OperationChannel"]
+
+
+class ChannelDailySnapshot(Base):
+    __tablename__ = "channel_daily_snapshots"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "snapshot_date", name="uq_channel_daily"),
+        {"schema": "finance"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("finance.channels.id"), nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(DateTime(timezone=False), nullable=False)  # store date as naive
+    subscribers_count: Mapped[int | None] = mapped_column(BigInteger)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PostSnapshot(Base):
+    __tablename__ = "post_snapshots"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "message_id", "snapshot_date", name="uq_post_daily"),
+        {"schema": "finance"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("finance.channels.id"), nullable=False)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snapshot_date: Mapped[date] = mapped_column(DateTime(timezone=False), nullable=False)
+    views: Mapped[int | None] = mapped_column(BigInteger)
+    forwards: Mapped[int | None] = mapped_column(BigInteger)
+    reactions_total: Mapped[int | None] = mapped_column(BigInteger)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+__all__ += ["ChannelDailySnapshot", "PostSnapshot"]

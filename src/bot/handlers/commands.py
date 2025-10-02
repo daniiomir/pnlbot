@@ -4,6 +4,7 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from bot.keyboards.channels import channels_inline_menu_kb
 router = Router()
 
 
@@ -18,10 +19,13 @@ async def cmd_start(message: Message) -> None:
         "• /add — добавить операцию пошагово\n"
         "• /cancel — отменить текущую операцию\n"
         "• /help — справка\n\n"
+        "Каналы:\n"
+        "• /channels — меню управления каналами\n\n"
         "Подсказки:\n"
         "• На шаге каналов — мультивыбор.\n"
         "• Сумму можно вводить с копейками (например: 1200.50 или 1 200,50).\n"
-        "• В конце можно добавить ссылку на чек и комментарий (по желанию)."
+        "• В конце можно добавить ссылку на чек и комментарий (по желанию).",
+        reply_markup=channels_inline_menu_kb(),
     )
 
 
