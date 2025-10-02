@@ -3,4 +3,3 @@
 debug/
 __pycache__/
 *.egg-info/
-telethon.session
