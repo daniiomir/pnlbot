@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 
 from telethon import TelegramClient
+from telethon.sessions import MemorySession
 
 from bot.settings import Settings
 
@@ -18,11 +19,12 @@ async def init_telethon(settings: Settings) -> TelegramClient:
     global _client
     if _client is not None:
         return _client
-    client = TelegramClient(settings.telethon_session_path, settings.telethon_api_id, settings.telethon_api_hash)
+    # Use in-memory session (no persistence on disk)
+    client = TelegramClient(MemorySession(), settings.telethon_api_id, settings.telethon_api_hash)
     await client.connect()
     if not await client.is_user_authorized():
-        logger.error("Telethon session is not authorized. Please login the session out-of-band.")
-        # We do not perform interactive login here; require pre-authorized session file
+        logger.error("Telethon session is not authorized. Interactive login is required to proceed.")
+        # We do not perform interactive login here; provide session separately if needed
     _client = client
     logger.info("Telethon client initialized")
     return client
