@@ -430,7 +430,7 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
         except Exception:
             dates.append(None)  # type: ignore[arg-type]
 
-    # Keep only last 3 calendar days
+    # Keep a longer retention to support horizons (e.g., 72h vs 48h)
     valid: list[tuple[int, date]] = [(idx, d) for idx, d in enumerate(dates) if d is not None]
     if not valid:
         logger.debug("Churn: no valid dates in followers graph for tg_chat_id=%s", tg_chat_id)
@@ -440,7 +440,7 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
     for idx, d in valid:
         last_index_by_date[d] = idx
     sorted_unique_dates = sorted(last_index_by_date.keys())
-    selected_dates = sorted_unique_dates[-3:]
+    selected_dates = sorted_unique_dates[-7:]
 
     with session_scope() as s:
         rows_written = 0
