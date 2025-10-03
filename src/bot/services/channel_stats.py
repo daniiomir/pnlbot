@@ -8,7 +8,7 @@ from telethon.tl.types import Message
 from telethon.errors.rpcerrorlist import ChannelPrivateError
 
 from bot.db.base import session_scope
-from bot.db.models import Channel, ChannelDailySnapshot, PostSnapshot
+from bot.db.models import Channel, ChannelDailySnapshot, PostSnapshot, ChannelSubscribersHistory
 from bot.services.mtproto_client import get_telethon
 from bot.services.time import MSK_TZ, now_msk
 
@@ -117,6 +117,15 @@ async def collect_daily_for_all_channels(snapshot_date_local: datetime) -> dict[
                     )
                 )
                 daily_inserted += 1
+
+            # History row for churn analysis
+            s.add(
+                ChannelSubscribersHistory(
+                    channel_id=ch_id,
+                    collected_at=collected_at,
+                    subscribers_count=subs,
+                )
+            )
 
         # Update channel health markers
         with session_scope() as s:
@@ -233,6 +242,15 @@ async def collect_for_channel(channel_id: int, tg_chat_id: int, when_local: date
                 )
             )
             daily_inserted += 1
+
+        # History row for churn analysis
+        s.add(
+            ChannelSubscribersHistory(
+                channel_id=channel_id,
+                collected_at=collected_at,
+                subscribers_count=subs,
+            )
+        )
 
     # Update channel health
     with session_scope() as s:

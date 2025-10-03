@@ -122,3 +122,16 @@ class PostSnapshot(Base):
 
 
 __all__ += ["ChannelDailySnapshot", "PostSnapshot"]
+
+
+class ChannelSubscribersHistory(Base):
+    __tablename__ = "channel_subscribers_history"
+    __table_args__ = ({"schema": "finance"},)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("finance.channels.id"), nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    subscribers_count: Mapped[int | None] = mapped_column(BigInteger)
+
+
+__all__ += ["ChannelSubscribersHistory"]
