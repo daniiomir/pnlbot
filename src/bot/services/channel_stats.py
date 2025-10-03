@@ -419,14 +419,14 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
         logger.debug("Churn: followers graph missing series for tg_chat_id=%s", tg_chat_id)
         return
 
-    # Normalize timestamps (ms or s) to UTC dates
+    # Normalize timestamps (ms or s) to MSK local dates for consistency with reporting
     dates: list[date] = []
     for ts in x_values:
         try:
             tsn = ts
             if isinstance(tsn, (int, float)) and tsn > 10_000_000_000:
                 tsn = int(tsn // 1000)
-            dates.append(datetime.fromtimestamp(int(tsn), tz=timezone.utc).date())
+            dates.append(datetime.fromtimestamp(int(tsn), tz=timezone.utc).astimezone(MSK_TZ).date())
         except Exception:
             dates.append(None)  # type: ignore[arg-type]
 

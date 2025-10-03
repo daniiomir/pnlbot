@@ -110,7 +110,9 @@ async def cmd_stats(message: Message) -> None:
             parts: list[str] = [f"{title}", f"👥 {subs if subs is not None else '-'}"]
             for h in horizons:
                 start_utc = now_utc - timedelta(hours=h)
-                start_local_date = (now_moment - timedelta(hours=h)).date()
+                # Align churn to full MSK days window to avoid partial-day mismatch
+                days_window = int((h + 23) // 24)
+                start_local_date = (now_moment - timedelta(days=days_window-1)).date()
                 cnt, avg_views = (
                     s.query(
                         func.count(PostSnapshot.id),
