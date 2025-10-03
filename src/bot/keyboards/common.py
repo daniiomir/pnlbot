@@ -56,3 +56,13 @@ def skip_kb(callback_data: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data=callback_data)]]
     )
+
+
+def options_menu_kb(notify_on: bool) -> InlineKeyboardMarkup:
+    toggle_text = "Оповещение: Вкл" if notify_on else "Оповещение: Выкл"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=toggle_text, callback_data="options:toggle_notify")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="channels:menu")],
+        ]
+    )

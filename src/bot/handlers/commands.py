@@ -7,11 +7,14 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from bot.keyboards.channels import channels_inline_menu_kb
+from bot.keyboards.common import options_menu_kb
+from bot.db.models import User
 from bot.services.time import now_msk
 from bot.services.channel_stats import collect_daily_for_all_channels
 from bot.db.base import session_scope
 from bot.db.models import Channel, ChannelDailySnapshot, PostSnapshot, ChannelDailyChurn
 from sqlalchemy import func
+from bot.services.alerts import build_stats_report_text
 from datetime import timedelta, timezone
  
 logger = logging.getLogger()
@@ -53,6 +56,37 @@ async def cmd_help(message: Message) -> None:
     )
 
 
+@router.callback_query(lambda c: c.data == "options:menu")
+async def options_menu(cb):
+    uid = cb.from_user.id if cb.from_user else None
+    if uid is None:
+        await cb.answer("Техническая ошибка", show_alert=True)
+        return
+    with session_scope() as s:
+        user = s.query(User).filter(User.tg_user_id == uid).one_or_none()
+        notify = bool(getattr(user, "notify_daily_stats", False)) if user else False
+    await cb.message.edit_text("Опции:", reply_markup=options_menu_kb(notify_on=notify))
+    await cb.answer()
+
+
+@router.callback_query(lambda c: c.data == "options:toggle_notify")
+async def options_toggle_notify(cb):
+    uid = cb.from_user.id if cb.from_user else None
+    if uid is None:
+        await cb.answer("Техническая ошибка", show_alert=True)
+        return
+    with session_scope() as s:
+        user = s.query(User).filter(User.tg_user_id == uid).one_or_none()
+        if user is None:
+            await cb.answer("Пользователь не найден", show_alert=True)
+            return
+        user.notify_daily_stats = not bool(user.notify_daily_stats)
+        s.flush()
+        new_state = bool(user.notify_daily_stats)
+    await cb.message.edit_reply_markup(reply_markup=options_menu_kb(notify_on=new_state))
+    await cb.answer("Оповещение: " + ("включено" if new_state else "выключено"))
+
+
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message) -> None:
     await message.answer("Операция отменена.")
@@ -80,75 +114,8 @@ async def cmd_collect_now(message: Message) -> None:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
-    today = now_msk().date()
-    now_moment = now_msk()
-    now_utc = now_moment.astimezone(timezone.utc)
-    horizons = [24, 48, 72]
-    with session_scope() as s:
-        channels = (
-            s.query(Channel)
-            .filter(Channel.is_active.is_(True))
-            .order_by(Channel.created_at.desc())
-            .limit(20)
-            .all()
-        )
-        if not channels:
-            await message.answer("Активных каналов не найдено.")
-            return
-        lines: list[str] = []
-        for ch in channels:
-            title = ch.title or ch.username or str(ch.tg_chat_id)
-            daily = (
-                s.query(ChannelDailySnapshot)
-                .filter(
-                    ChannelDailySnapshot.channel_id == ch.id,
-                    ChannelDailySnapshot.snapshot_date == today,
-                )
-                .one_or_none()
-            )
-            subs = daily.subscribers_count if daily else None
-            parts: list[str] = [f"{title}", f"👥 {subs if subs is not None else '-'}"]
-            for h in horizons:
-                start_utc = now_utc - timedelta(hours=h)
-                # Align churn to full MSK days window to avoid partial-day mismatch
-                days_window = int((h + 23) // 24)
-                start_local_date = (now_moment - timedelta(days=days_window-1)).date()
-                cnt, avg_views = (
-                    s.query(
-                        func.count(PostSnapshot.id),
-                        func.avg(PostSnapshot.views),
-                    )
-                    .filter(
-                        PostSnapshot.channel_id == ch.id,
-                        PostSnapshot.snapshot_date == today,
-                        PostSnapshot.posted_at >= start_utc,
-                        PostSnapshot.posted_at <= now_utc,
-                    )
-                    .one()
-                )
-                cnt_int = int(cnt or 0)
-                avg_int = int((avg_views or 0))
-                er_txt = "-"
-                if subs and subs > 0 and avg_views is not None:
-                    er = (float(avg_views) / float(subs)) * 100.0
-                    er_txt = f"{er:.1f}%"
-                joins_sum, leaves_sum = (
-                    s.query(
-                        func.coalesce(func.sum(ChannelDailyChurn.joins_count), 0),
-                        func.coalesce(func.sum(ChannelDailyChurn.leaves_count), 0),
-                    )
-                    .filter(
-                        ChannelDailyChurn.channel_id == ch.id,
-                        ChannelDailyChurn.snapshot_date >= start_local_date,
-                        ChannelDailyChurn.snapshot_date <= today,
-                    )
-                    .one()
-                )
-                parts.append(
-                    f"{h}ч: 📝 {cnt_int} | 👀 {avg_int} | ER {er_txt} | ⬆️ {int(joins_sum or 0)} | ⬇️ {int(leaves_sum or 0)}"
-                )
-            lines.append("\n".join(parts))
-        await message.answer("\n\n".join(lines))
+    text = await build_stats_report_text()
+    await message.answer(text, parse_mode="HTML")
 
 
 

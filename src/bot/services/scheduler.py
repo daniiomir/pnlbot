@@ -9,6 +9,7 @@ from aiogram import Bot
 
 from bot.services.time import MSK_TZ
 from bot.services.channel_stats import collect_daily_for_all_channels
+from bot.services.alerts import notify_daily_stats
 
 logger = logging.getLogger()
 
@@ -40,6 +41,16 @@ def add_daily_job(bot: Bot) -> None:
     trigger = CronTrigger(hour=0, minute=5, timezone=MSK_TZ)
     scheduler.add_job(_job_wrapper, trigger, id="daily_collect", replace_existing=True)
     logger.info("Daily job scheduled at 00:05 MSK")
+
+    async def _notify_job() -> None:
+        try:
+            await notify_daily_stats(bot)
+        except Exception:
+            logger.exception("Daily stats notify job failed")
+
+    notify_trigger = CronTrigger(hour=9, minute=0, timezone=MSK_TZ)
+    scheduler.add_job(_notify_job, notify_trigger, id="daily_notify_stats", replace_existing=True)
+    logger.info("Daily stats notification scheduled at 09:00 MSK")
 
 
 def shutdown_scheduler() -> None:
