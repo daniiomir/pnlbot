@@ -33,7 +33,9 @@ Base = models.Base  # type: ignore[attr-defined]
 
 config = context.config
 
-if config.config_file_name is not None:
+# Do not let Alembic override application's logging by default.
+# Enable only if explicitly requested via env var ALEMBIC_CONFIGURE_LOGGER=1
+if config.config_file_name is not None and os.getenv("ALEMBIC_CONFIGURE_LOGGER", "0").lower() in ("1", "true", "yes"):
     fileConfig(config.config_file_name)
 
 

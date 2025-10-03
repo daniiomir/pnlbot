@@ -135,3 +135,21 @@ class ChannelSubscribersHistory(Base):
 
 
 __all__ += ["ChannelSubscribersHistory"]
+
+
+class ChannelDailyChurn(Base):
+    __tablename__ = "channel_daily_churn"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "snapshot_date", name="uq_channel_daily_churn"),
+        {"schema": "finance"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("finance.channels.id"), nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(DateTime(timezone=False), nullable=False)
+    joins_count: Mapped[int | None] = mapped_column(BigInteger)
+    leaves_count: Mapped[int | None] = mapped_column(BigInteger)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+__all__ += ["ChannelDailyChurn"]

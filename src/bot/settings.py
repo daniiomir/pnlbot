@@ -126,11 +126,10 @@ def setup_logging(level_name: str = "INFO") -> None:
         def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
             return record.levelno < self.max_level
 
-    # stdout handler: only logs below ERROR
+    # stdout handler: emit all logs (including ERROR) to stdout as well
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(formatter)
     stdout_handler.setLevel(level)
-    stdout_handler.addFilter(_MaxLevelFilter(logging.ERROR))
 
     # stderr handler: ERROR and above
     stderr_handler = logging.StreamHandler(stream=sys.stderr)

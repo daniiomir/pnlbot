@@ -146,6 +146,8 @@ async def main() -> None:
         with suppress(Exception):
             await bot.delete_webhook(drop_pending_updates=False)
         await on_startup(dp, settings)
+        # Re-apply logging configuration after migrations in case Alembic altered handlers
+        setup_logging(settings.log_level)
         # Schedule daily job
         add_daily_job(bot)
         # Run polling synchronously so stdout/file logging flushes in-order

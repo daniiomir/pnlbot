@@ -26,7 +26,8 @@ async def cmd_channels(message: Message) -> None:
 async def ask_forward(message: Message) -> None:
     await message.answer(
         "Перешлите сюда любой пост из канала, который хотите добавить.\n"
-        "Если канал приватный — добавьте нашего user‑аккаунта (Telethon session) в участники."
+        "Если канал приватный — добавьте нашего тех. аккаунта (Telethon session) в участники и назначьте <b>администратором</b> для расширенной статистики (подписки/отписки).",
+        parse_mode="HTML",
     )
 
 
@@ -75,15 +76,18 @@ async def handle_forwarded_post(message: Message) -> None:
         res = await collect_for_channel(ch_id, tg_chat_id, now_msk())
         await message.answer(
             f"Канал добавлен: {title or username or tg_chat_id}\n"
-            f"Сбор выполнен: подписчики и посты (72ч)."
-            ,
+            f"Сбор выполнен: подписчики и посты (72ч).\n"
+            f"⚠️ Назначьте наш тех. аккаунт Telethon <b>администратором</b> канала, иначе метрики подписок/отписок будут недоступны.",
+            parse_mode="HTML",
             reply_markup=channel_actions_kb(ch_id),
         )
     except Exception:
         logger.exception("Immediate collect failed for channel %s", tg_chat_id)
         await message.answer(
             f"Канал добавлен: {title or username or tg_chat_id}\n"
-            "Не удалось сразу собрать статистику (см. логи).",
+            "Не удалось сразу собрать статистику (см. логи).\n"
+            "⚠️ Назначьте наш тех. аккаунт Telethon <b>администратором</b> канала для расширенной статистики.",
+            parse_mode="HTML",
             reply_markup=channel_actions_kb(ch_id),
         )
 
@@ -110,7 +114,8 @@ async def list_channels(message: Message) -> None:
 async def inline_add_channel(cb: CallbackQuery) -> None:
     await cb.message.answer(
         "Перешлите сюда любой пост из канала, который хотите добавить.\n"
-        "Если канал приватный — добавьте нашего user‑аккаунта (Telethon session) в участники."
+        "Если канал приватный — добавьте нашего тех. аккаунта (Telethon session) в участники и назначьте <b>администратором</b> для расширенной статистики (подписки/отписки).",
+        parse_mode="HTML",
     )
     await cb.answer()
 

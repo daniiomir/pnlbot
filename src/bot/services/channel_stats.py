@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Iterable
+import json
+from datetime import datetime, timedelta, timezone, date
+from typing import Iterable, Any, Sequence
 
 from telethon.tl.types import Message
+from telethon.tl.functions.stats import GetBroadcastStatsRequest, LoadAsyncGraphRequest
+from telethon.tl.types import StatsGraph, StatsGraphAsync
 from telethon.errors.rpcerrorlist import ChannelPrivateError
 
 from bot.db.base import session_scope
-from bot.db.models import Channel, ChannelDailySnapshot, PostSnapshot, ChannelSubscribersHistory
+from bot.db.models import (
+    Channel,
+    ChannelDailySnapshot,
+    PostSnapshot,
+    ChannelSubscribersHistory,
+    ChannelDailyChurn,
+)
 from bot.services.mtproto_client import get_telethon
 from bot.services.time import MSK_TZ, now_msk
 
@@ -179,6 +188,14 @@ async def collect_daily_for_all_channels(snapshot_date_local: datetime) -> dict[
                     )
                     posts_inserted += 1
 
+        # Churn history (requires admin rights): stats.getBroadcastStats growth_graph
+        try:
+            await _collect_and_store_churn_history(ch_id, tg_chat_id, collected_at)
+        except Exception:
+            logger.exception(
+                "Churn collection failed for %s (check admin rights / limits)", tg_chat_id
+            )
+
         channels_processed += 1
 
     logger.info(
@@ -304,6 +321,14 @@ async def collect_for_channel(channel_id: int, tg_chat_id: int, when_local: date
                 )
                 posts_inserted += 1
 
+    # Churn (requires admin rights)
+    try:
+        await _collect_and_store_churn_history(channel_id, tg_chat_id, collected_at)
+    except Exception:
+        logger.exception(
+            "Churn collection failed for %s (check admin rights / limits)", tg_chat_id
+        )
+
     return {
         "channels": 1,
         "daily_inserted": daily_inserted,
@@ -311,5 +336,151 @@ async def collect_for_channel(channel_id: int, tg_chat_id: int, when_local: date
         "posts_inserted": posts_inserted,
         "posts_updated": posts_updated,
     }
+
+
+async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, collected_at: datetime) -> None:
+    """Fetch followers graph (Joined/Left) and upsert daily churn."""
+    client = get_telethon()
+    entity = await client.get_entity(tg_chat_id)
+    stats = await client(GetBroadcastStatsRequest(channel=entity, dark=False))
+
+    followers_graph = getattr(stats, "followers_graph", None)
+    if followers_graph is None:
+        logger.info("Churn: followers graph is missing for tg_chat_id=%s", tg_chat_id)
+        return
+
+    graph = followers_graph
+    if isinstance(graph, StatsGraphAsync):
+        try:
+            graph = await client(LoadAsyncGraphRequest(token=graph.token))
+        except Exception:
+            logger.exception("Churn: failed to load async followers graph for %s", tg_chat_id)
+            return
+
+    if not isinstance(graph, StatsGraph):
+        logger.info("Churn: unsupported followers graph type for tg_chat_id=%s: %s", tg_chat_id, type(graph).__name__)
+        return
+
+    data_obj = getattr(graph, "json", None)
+    raw_json: str | None = getattr(data_obj, "data", None) if data_obj is not None else None
+    if not raw_json:
+        logger.info("Churn: empty followers graph JSON for tg_chat_id=%s", tg_chat_id)
+        return
+
+    try:
+        parsed = json.loads(raw_json)
+    except Exception:
+        logger.exception("Churn: failed to parse followers graph JSON for %s", tg_chat_id)
+        return
+
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("columns"), list):
+        logger.info("Churn: unsupported followers graph JSON structure (no columns) for tg_chat_id=%s", tg_chat_id)
+        return
+
+    cols = parsed.get("columns")
+    names = parsed.get("names") or {}
+
+    # Extract x, joined, left series
+    x_values: list[int] = []
+    joined_values: list[int | None] | None = None
+    left_values: list[int | None] | None = None
+
+    for col in cols:
+        if not isinstance(col, list) or not col:
+            continue
+        key = col[0]
+        values = col[1:]
+        if key == "x":
+            x_values = values
+
+    # Prefer mapping via names where available, else fallback to y0/y1
+    title_to_key: dict[str, str] = {}
+    try:
+        for k, title in (names or {}).items():
+            if isinstance(title, str):
+                title_to_key[title.strip().lower()] = k
+    except Exception:
+        title_to_key = {}
+
+    joined_key = title_to_key.get("joined") or title_to_key.get("joins") or "y0"
+    left_key = title_to_key.get("left") or title_to_key.get("leaves") or "y1"
+
+    for col in cols:
+        if not isinstance(col, list) or not col:
+            continue
+        key = col[0]
+        values = col[1:]
+        if key == joined_key:
+            joined_values = [int(v) if v is not None else None for v in values]
+        elif key == left_key:
+            left_values = [int(v) if v is not None else None for v in values]
+
+    if not x_values or (joined_values is None and left_values is None):
+        logger.info("Churn: followers graph missing series for tg_chat_id=%s", tg_chat_id)
+        return
+
+    # Normalize timestamps (ms or s) to UTC dates
+    dates: list[date] = []
+    for ts in x_values:
+        try:
+            tsn = ts
+            if isinstance(tsn, (int, float)) and tsn > 10_000_000_000:
+                tsn = int(tsn // 1000)
+            dates.append(datetime.fromtimestamp(int(tsn), tz=timezone.utc).date())
+        except Exception:
+            dates.append(None)  # type: ignore[arg-type]
+
+    # Keep only last 3 calendar days
+    valid: list[tuple[int, date]] = [(idx, d) for idx, d in enumerate(dates) if d is not None]
+    if not valid:
+        logger.info("Churn: no valid dates in followers graph for tg_chat_id=%s", tg_chat_id)
+        return
+    # For safety, use the last index per date in case of duplicates
+    last_index_by_date: dict[date, int] = {}
+    for idx, d in valid:
+        last_index_by_date[d] = idx
+    sorted_unique_dates = sorted(last_index_by_date.keys())
+    selected_dates = sorted_unique_dates[-3:]
+
+    with session_scope() as s:
+        rows_written = 0
+        for d_local in selected_dates:
+            idx = last_index_by_date[d_local]
+            joins_val = joined_values[idx] if joined_values and idx < len(joined_values) else None
+            leaves_val = left_values[idx] if left_values and idx < len(left_values) else None
+
+            existing = (
+                s.query(ChannelDailyChurn)
+                .filter(
+                    ChannelDailyChurn.channel_id == channel_id,
+                    ChannelDailyChurn.snapshot_date == d_local,
+                )
+                .one_or_none()
+            )
+            if existing:
+                existing.joins_count = joins_val
+                existing.leaves_count = leaves_val
+                existing.collected_at = collected_at
+            else:
+                s.add(
+                    ChannelDailyChurn(
+                        channel_id=channel_id,
+                        snapshot_date=d_local,
+                        joins_count=joins_val,
+                        leaves_count=leaves_val,
+                        collected_at=collected_at,
+                    )
+                )
+            rows_written += 1
+
+    try:
+        logger.info(
+            "Churn: upserted %s rows (dates=%s) from followers_graph for tg_chat_id=%s",
+            rows_written,
+            ", ".join(str(d) for d in selected_dates),
+            tg_chat_id,
+        )
+    except Exception:
+        logger.info("Churn: upserted %s rows from followers_graph for tg_chat_id=%s", rows_written, tg_chat_id)
 
 

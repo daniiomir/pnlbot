@@ -10,7 +10,7 @@ from bot.keyboards.channels import channels_inline_menu_kb
 from bot.services.time import now_msk
 from bot.services.channel_stats import collect_daily_for_all_channels
 from bot.db.base import session_scope
-from bot.db.models import Channel, ChannelDailySnapshot, PostSnapshot
+from bot.db.models import Channel, ChannelDailySnapshot, PostSnapshot, ChannelDailyChurn
 from sqlalchemy import func
 from datetime import timedelta, timezone
  
@@ -81,7 +81,8 @@ async def cmd_collect_now(message: Message) -> None:
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
     today = now_msk().date()
-    now_utc = now_msk().astimezone(timezone.utc)
+    now_moment = now_msk()
+    now_utc = now_moment.astimezone(timezone.utc)
     horizons = [24, 48, 72]
     with session_scope() as s:
         channels = (
@@ -109,6 +110,7 @@ async def cmd_stats(message: Message) -> None:
             parts: list[str] = [f"{title}", f"👥 {subs if subs is not None else '-'}"]
             for h in horizons:
                 start_utc = now_utc - timedelta(hours=h)
+                start_local_date = (now_moment - timedelta(hours=h)).date()
                 cnt, avg_views = (
                     s.query(
                         func.count(PostSnapshot.id),
@@ -128,7 +130,21 @@ async def cmd_stats(message: Message) -> None:
                 if subs and subs > 0 and avg_views is not None:
                     er = (float(avg_views) / float(subs)) * 100.0
                     er_txt = f"{er:.1f}%"
-                parts.append(f"{h}ч: 📝 {cnt_int} | 👀 {avg_int} | ER {er_txt}")
+                joins_sum, leaves_sum = (
+                    s.query(
+                        func.coalesce(func.sum(ChannelDailyChurn.joins_count), 0),
+                        func.coalesce(func.sum(ChannelDailyChurn.leaves_count), 0),
+                    )
+                    .filter(
+                        ChannelDailyChurn.channel_id == ch.id,
+                        ChannelDailyChurn.snapshot_date >= start_local_date,
+                        ChannelDailyChurn.snapshot_date <= today,
+                    )
+                    .one()
+                )
+                parts.append(
+                    f"{h}ч: 📝 {cnt_int} | 👀 {avg_int} | ER {er_txt} | ⬆️ {int(joins_sum or 0)} | ⬇️ {int(leaves_sum or 0)}"
+                )
             lines.append("\n".join(parts))
         await message.answer("\n\n".join(lines))
 
