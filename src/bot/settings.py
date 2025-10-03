@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 from urllib.parse import quote_plus
 from typing import Set
+from logging.handlers import RotatingFileHandler
 
 
 def _parse_whitelist(value: str | None) -> Set[int]:
@@ -117,13 +118,45 @@ def setup_logging(level_name: str = "INFO") -> None:
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
 
-    stream_handler = logging.StreamHandler(stream=sys.stdout)
-    stream_handler.setFormatter(formatter)
+    class _MaxLevelFilter(logging.Filter):
+        def __init__(self, max_level: int) -> None:
+            super().__init__()
+            self.max_level = max_level
+
+        def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+            return record.levelno < self.max_level
+
+    # stdout handler: only logs below ERROR
+    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    stdout_handler.setFormatter(formatter)
+    stdout_handler.setLevel(level)
+    stdout_handler.addFilter(_MaxLevelFilter(logging.ERROR))
+
+    # stderr handler: ERROR and above
+    stderr_handler = logging.StreamHandler(stream=sys.stderr)
+    stderr_handler.setFormatter(formatter)
+    stderr_handler.setLevel(logging.ERROR)
 
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()
-    root.addHandler(stream_handler)
+    root.addHandler(stdout_handler)
+    root.addHandler(stderr_handler)
+
+    # Optional file handler
+    log_file = os.environ.get("LOG_FILE", "").strip()
+    if log_file:
+        try:
+            os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
+            file_handler = RotatingFileHandler(
+                log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+            )
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(level)
+            root.addHandler(file_handler)
+        except Exception:
+            # If file logging fails, continue without breaking the app
+            root.exception("Failed to initialize file logger: %s", log_file)
 
     # Ensure verbose logs from aiogram are visible
     for logger_name in (

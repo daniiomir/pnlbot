@@ -9,7 +9,7 @@ from telethon.sessions import StringSession
 
 from bot.settings import Settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 
 _client: Optional[TelegramClient] = None

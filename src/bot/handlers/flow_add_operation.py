@@ -19,7 +19,7 @@ from bot.services.dedup import build_dedup_hash
 from bot.db.base import session_scope
 from bot.db.models import Category, Channel, Operation, OperationChannel, User
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 router = Router()
 

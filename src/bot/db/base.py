@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None

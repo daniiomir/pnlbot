@@ -10,7 +10,7 @@ from aiogram import Bot
 from bot.services.time import MSK_TZ
 from bot.services.channel_stats import collect_daily_for_all_channels
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 _scheduler: AsyncIOScheduler | None = None
 

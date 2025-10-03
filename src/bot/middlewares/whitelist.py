@@ -11,7 +11,7 @@ from bot.db.base import session_scope
 from bot.db.models import User
 from bot.services.time import now_msk
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 
 class WhitelistMiddleware(BaseMiddleware):

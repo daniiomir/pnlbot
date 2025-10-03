@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import TelegramObject, Message, CallbackQuery
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 
 class ErrorLoggingMiddleware(BaseMiddleware):

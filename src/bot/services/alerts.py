@@ -4,7 +4,7 @@ import logging
 
 from aiogram import Bot
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 
 async def notify_admins(bot: Bot, user_ids: list[int], text: str) -> None:
