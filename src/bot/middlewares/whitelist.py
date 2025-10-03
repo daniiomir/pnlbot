@@ -46,7 +46,7 @@ class WhitelistMiddleware(BaseMiddleware):
                 await message.answer("Доступ запрещён. Обратитесь к администратору.")
             elif isinstance(event, CallbackQuery):
                 await event.answer("Доступ запрещён", show_alert=True)
-            logger.info("Rejected non-whitelisted user: %s", from_user_id)
+            logger.warning("Rejected non-whitelisted user: %s", from_user_id)
             return
 
         try:

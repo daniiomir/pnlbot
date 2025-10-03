@@ -85,7 +85,7 @@ async def collect_daily_for_all_channels(snapshot_date_local: datetime) -> dict[
             .all()
         )
         channels = [(row.id, row.tg_chat_id) for row in rows]
-    logger.info(
+    logger.debug(
         "Collecting stats for %s: active_channels=%s",
         start_local.date(),
         len(channels),
@@ -100,7 +100,7 @@ async def collect_daily_for_all_channels(snapshot_date_local: datetime) -> dict[
     for ch_id, tg_chat_id in channels:
         subs = await fetch_channel_subscribers_count(tg_chat_id)
         collected_at = now_msk()
-        logger.info("Collect channel=%s subs=%s", tg_chat_id, subs)
+        logger.debug("Collect channel=%s subs=%s", tg_chat_id, subs)
 
         # Upsert channel_daily_snapshots
         with session_scope() as s:
@@ -228,7 +228,7 @@ async def collect_for_channel(channel_id: int, tg_chat_id: int, when_local: date
 
     subs = await fetch_channel_subscribers_count(tg_chat_id)
     collected_at = now_msk()
-    logger.info("Collect (single) channel=%s subs=%s", tg_chat_id, subs)
+    logger.debug("Collect (single) channel=%s subs=%s", tg_chat_id, subs)
 
     daily_inserted = 0
     daily_updated = 0
@@ -346,7 +346,7 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
 
     followers_graph = getattr(stats, "followers_graph", None)
     if followers_graph is None:
-        logger.info("Churn: followers graph is missing for tg_chat_id=%s", tg_chat_id)
+        logger.debug("Churn: followers graph is missing for tg_chat_id=%s", tg_chat_id)
         return
 
     graph = followers_graph
@@ -358,13 +358,13 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
             return
 
     if not isinstance(graph, StatsGraph):
-        logger.info("Churn: unsupported followers graph type for tg_chat_id=%s: %s", tg_chat_id, type(graph).__name__)
+        logger.debug("Churn: unsupported followers graph type for tg_chat_id=%s: %s", tg_chat_id, type(graph).__name__)
         return
 
     data_obj = getattr(graph, "json", None)
     raw_json: str | None = getattr(data_obj, "data", None) if data_obj is not None else None
     if not raw_json:
-        logger.info("Churn: empty followers graph JSON for tg_chat_id=%s", tg_chat_id)
+        logger.debug("Churn: empty followers graph JSON for tg_chat_id=%s", tg_chat_id)
         return
 
     try:
@@ -374,7 +374,7 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
         return
 
     if not isinstance(parsed, dict) or not isinstance(parsed.get("columns"), list):
-        logger.info("Churn: unsupported followers graph JSON structure (no columns) for tg_chat_id=%s", tg_chat_id)
+        logger.debug("Churn: unsupported followers graph JSON structure (no columns) for tg_chat_id=%s", tg_chat_id)
         return
 
     cols = parsed.get("columns")
@@ -416,7 +416,7 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
             left_values = [int(v) if v is not None else None for v in values]
 
     if not x_values or (joined_values is None and left_values is None):
-        logger.info("Churn: followers graph missing series for tg_chat_id=%s", tg_chat_id)
+        logger.debug("Churn: followers graph missing series for tg_chat_id=%s", tg_chat_id)
         return
 
     # Normalize timestamps (ms or s) to UTC dates
@@ -433,7 +433,7 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
     # Keep only last 3 calendar days
     valid: list[tuple[int, date]] = [(idx, d) for idx, d in enumerate(dates) if d is not None]
     if not valid:
-        logger.info("Churn: no valid dates in followers graph for tg_chat_id=%s", tg_chat_id)
+        logger.debug("Churn: no valid dates in followers graph for tg_chat_id=%s", tg_chat_id)
         return
     # For safety, use the last index per date in case of duplicates
     last_index_by_date: dict[date, int] = {}
@@ -474,13 +474,13 @@ async def _collect_and_store_churn_history(channel_id: int, tg_chat_id: int, col
             rows_written += 1
 
     try:
-        logger.info(
+        logger.debug(
             "Churn: upserted %s rows (dates=%s) from followers_graph for tg_chat_id=%s",
             rows_written,
             ", ".join(str(d) for d in selected_dates),
             tg_chat_id,
         )
     except Exception:
-        logger.info("Churn: upserted %s rows from followers_graph for tg_chat_id=%s", rows_written, tg_chat_id)
+        logger.debug("Churn: upserted %s rows from followers_graph for tg_chat_id=%s", rows_written, tg_chat_id)
 
 

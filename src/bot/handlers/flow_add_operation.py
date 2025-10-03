@@ -171,7 +171,7 @@ async def choose_type(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "back:type")
 async def back_to_type(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.info("back_to_type from state=%s", await state.get_state())
+    logger.debug("back_to_type from state=%s", await state.get_state())
     await state.set_state(AddOpStates.choosing_type)
     await callback.message.edit_text("Выберите тип операции:", reply_markup=operation_type_kb())
     await callback.answer()
@@ -179,7 +179,7 @@ async def back_to_type(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("cat:"), AddOpStates.choosing_category)
 async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.info("choose_category payload=%s state=%s", callback.data, await state.get_state())
+    logger.debug("choose_category payload=%s state=%s", callback.data, await state.get_state())
     _, id_str = callback.data.split(":", 1)
     if not id_str.isdigit():
         await callback.answer("Некорректная категория")
@@ -218,7 +218,7 @@ async def choose_category(callback: CallbackQuery, state: FSMContext) -> None:
 # Fallback: handle category press only when not in the expected state
 @router.callback_query(F.data.startswith("cat:"), ~StateFilter(AddOpStates.choosing_category))
 async def choose_category_any(callback: CallbackQuery, state: FSMContext) -> None:
-    logger.info("choose_category_any payload=%s state=%s", callback.data, await state.get_state())
+    logger.debug("choose_category_any payload=%s state=%s", callback.data, await state.get_state())
     await choose_category(callback, state)
 
 

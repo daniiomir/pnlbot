@@ -39,7 +39,7 @@ class LoggingMiddleware(BaseMiddleware):
             except Exception:
                 state_name = None
 
-        logger.info(
+        logger.debug(
             "update event=%s user_id=%s chat_id=%s state=%s payload=%s",
             event.__class__.__name__,
             user_id,
