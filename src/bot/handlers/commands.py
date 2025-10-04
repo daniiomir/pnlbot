@@ -4,7 +4,7 @@ import logging
 import os
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.keyboards.channels import channels_inline_menu_kb
 from bot.keyboards.common import options_menu_kb
@@ -393,6 +393,59 @@ async def cmd_cashflow(message: Message) -> None:
 
     balance_block = f"💼 Общий баланс средств: {_fmt_money_total(balance_all)}"
 
-    await message.answer(f"{week_block}\n\n{month_block}\n\n{balance_block}", parse_mode="HTML")
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Как считается", callback_data="cashflow:how")]
+        ]
+    )
+
+    await message.answer(
+        f"{week_block}\n\n{month_block}\n\n{balance_block}",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+
+
+@router.callback_query(lambda c: c.data == "cashflow:how")
+async def cashflow_how(cb):
+    text = (
+        "<b>Как считается Cashflow</b>\n\n"
+        "<b>Финансовые итоги периода</b>\n"
+        "• Доход = сумма доходов за период.\n"
+        "• Расходы (без личных вложений) = все расходы − личные вложения.\n"
+        "• Личные вложения = сумма личных вложений владельца.\n"
+        "• Маржа = Доход − Расходы (без личных вложений).\n"
+        "• Маржинальность = (Маржа / Доход) × 100%.\n\n"
+        "<b>Реклама и CPS</b>\n"
+        "• Закупка рекламы = расходы на рекламу.\n"
+        "• Вступления/Отписки = количество новых подписчиков / отписок.\n"
+        "• Чистый прирост = Вступления − Отписки.\n"
+        "• CPS (расход на 1 чистого) = Закупка рекламы / Чистый прирост (если > 0).\n\n"
+        "<b>Доп. метрики</b>\n"
+        "• Доход/пост = Доход / число постов за период.\n"
+        "• Расход/пост = Расходы (без личных) / число постов.\n"
+        "• RPM = Доход / (Просмотры / 1000).\n"
+        "• CPM = Расходы (без личных) / (Просмотры / 1000).\n"
+        "• ARPU = Доход / Среднее число подписчиков за период.\n"
+        "• ROMI = Доход / Закупка рекламы.\n\n"
+        "<b>Общие правила</b>\n"
+        "• Учитываются операции по каналам и общие (если есть).\n"
+        "• Неделя/месяц — календарные периоды (MSK).\n\n"
+        "<b>Общий баланс средств</b>\n"
+        "• За всё время: все доходы − все расходы."
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Главное меню", callback_data="main:menu")]
+        ]
+    )
+    await cb.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await cb.answer()
+
+
+@router.callback_query(lambda c: c.data == "main:menu")
+async def main_menu_cb(cb):
+    await cb.message.answer("Главное меню", reply_markup=channels_inline_menu_kb())
+    await cb.answer()
 
 
