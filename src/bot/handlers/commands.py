@@ -335,6 +335,51 @@ async def cmd_cashflow(message: Message) -> None:
     week_block = build_period(week_start, week_end, week_label)
     month_block = build_period(month_start, month_next, month_label)
 
-    await message.answer(f"{week_block}\n\n{month_block}", parse_mode="HTML")
+    # Общий баланс средств (за всё время по активным каналам)
+    with session_scope() as s:
+        channels = (
+            s.query(Channel)
+            .filter(Channel.is_active.is_(True))
+            .order_by(Channel.created_at.desc())
+            .all()
+        )
+        ch_ids = [c.id for c in channels]
+        income_all = 0
+        expense_all = 0
+        if ch_ids:
+            income_all = (
+                s.query(func.coalesce(func.sum(Operation.amount_kop), 0))
+                .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
+                .filter(
+                    Operation.op_type == OperationType.INCOME.value,
+                    Operation.is_general.is_(False),
+                    OperationChannel.c.channel_id.in_(ch_ids),
+                )
+                .scalar()
+            ) or 0
+            expense_all = (
+                s.query(func.coalesce(func.sum(Operation.amount_kop), 0))
+                .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
+                .filter(
+                    Operation.op_type == OperationType.EXPENSE.value,
+                    Operation.is_general.is_(False),
+                    OperationChannel.c.channel_id.in_(ch_ids),
+                )
+                .scalar()
+            ) or 0
+        income_all = int(income_all or 0)
+        expense_all = int(expense_all or 0)
+        balance_all = income_all - expense_all
+
+        def _fmt_money_total(kop: int) -> str:
+            total_kop = int(kop)
+            rub_abs = abs(total_kop) // 100
+            cnt_abs = abs(total_kop) % 100
+            sign = "" if total_kop >= 0 else "-"
+            return f"{sign}{rub_abs:,}.{cnt_abs:02d} ₽".replace(",", " ")
+
+    balance_block = f"💼 Общий баланс средств: {_fmt_money_total(balance_all)}"
+
+    await message.answer(f"{week_block}\n\n{month_block}\n\n{balance_block}", parse_mode="HTML")
 
 
