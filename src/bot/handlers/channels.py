@@ -143,16 +143,8 @@ async def inline_list_channels(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "operations:history")
 async def inline_operations_history(cb: CallbackQuery) -> None:
-    uid = cb.from_user.id if cb.from_user else None
-    if uid is None:
-        await cb.answer("Техническая ошибка", show_alert=True)
-        return
     with session_scope() as s:
-        user = s.query(User).filter(User.tg_user_id == uid).one_or_none()
-        if user is None:
-            await cb.answer("Пользователь не найден", show_alert=True)
-            return
-        # fetch last 10 operations created by this user
+        # fetch last 10 operations globally
         rows = (
             s.query(
                 Operation.id,
@@ -164,7 +156,6 @@ async def inline_operations_history(cb: CallbackQuery) -> None:
                 Operation.receipt_url,
                 Operation.comment,
             )
-            .filter(Operation.created_by_user_id == user.id)
             .order_by(Operation.id.desc())
             .limit(10)
             .all()
