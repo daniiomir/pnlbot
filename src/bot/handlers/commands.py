@@ -146,54 +146,52 @@ async def cmd_cashflow(message: Message) -> None:
 
             ch_ids = [c.id for c in channels]
 
-            # Finance: sum income/expense for operations linked to channels (exclude is_general)
-            # Join via OperationChannel; filter by created_at in [start, end)
-            income_kop = (
-                s.query(func.coalesce(func.sum(Operation.amount_kop), 0))
-                .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
-                .filter(
-                    Operation.op_type == OperationType.INCOME.value,
-                    Operation.is_general.is_(False),
-                    Operation.created_at >= fin_start,
-                    Operation.created_at < fin_end,
-                    OperationChannel.c.channel_id.in_(ch_ids),
+            # Finance: sum over DISTINCT operations to avoid double-counting multi-channel links
+            def _sum_ops_amount_kop(op_type: int | None = None, category_id: int | None = None) -> int:
+                # Sum for channel-linked operations (no double count)
+                base = (
+                    s.query(
+                        Operation.id.label("op_id"),
+                        func.max(Operation.amount_kop).label("amt"),
+                    )
+                    .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
+                    .filter(
+                        Operation.is_general.is_(False),
+                        Operation.created_at >= fin_start,
+                        Operation.created_at < fin_end,
+                        OperationChannel.c.channel_id.in_(ch_ids),
+                    )
                 )
-                .scalar()
-            ) or 0
-            income_kop = int(income_kop or 0)
+                if op_type is not None:
+                    base = base.filter(Operation.op_type == op_type)
+                if category_id is not None:
+                    base = base.filter(Operation.category_id == category_id)
+                sub = base.group_by(Operation.id).subquery()
+                ch_total = s.query(func.coalesce(func.sum(sub.c.amt), 0)).scalar() or 0
 
-            expense_kop = (
-                s.query(func.coalesce(func.sum(Operation.amount_kop), 0))
-                .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
-                .filter(
-                    Operation.op_type == OperationType.EXPENSE.value,
-                    Operation.is_general.is_(False),
+                # Sum for general operations (not linked to channels)
+                gen_q = s.query(func.coalesce(func.sum(Operation.amount_kop), 0)).filter(
+                    Operation.is_general.is_(True),
                     Operation.created_at >= fin_start,
                     Operation.created_at < fin_end,
-                    OperationChannel.c.channel_id.in_(ch_ids),
                 )
-                .scalar()
-            ) or 0
-            expense_kop = int(expense_kop or 0)
+                if op_type is not None:
+                    gen_q = gen_q.filter(Operation.op_type == op_type)
+                if category_id is not None:
+                    gen_q = gen_q.filter(Operation.category_id == category_id)
+                gen_total = gen_q.scalar() or 0
+
+                return int(ch_total or 0) + int(gen_total or 0)
+
+            income_kop = _sum_ops_amount_kop(OperationType.INCOME.value)
+            expense_kop = _sum_ops_amount_kop(OperationType.EXPENSE.value)
 
             # Ad purchase expenses for CPS denominator
             ad_purchase_cat = s.query(Category.id).filter(Category.code == "ad_purchase").one_or_none()
             ad_purchase_cat_id = ad_purchase_cat[0] if ad_purchase_cat else None
             ad_purchase_kop = 0
             if ad_purchase_cat_id is not None:
-                ad_purchase_kop = (
-                    s.query(func.coalesce(func.sum(Operation.amount_kop), 0))
-                    .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
-                    .filter(
-                        Operation.op_type == OperationType.EXPENSE.value,
-                        Operation.category_id == ad_purchase_cat_id,
-                        Operation.is_general.is_(False),
-                        Operation.created_at >= fin_start,
-                        Operation.created_at < fin_end,
-                        OperationChannel.c.channel_id.in_(ch_ids),
-                    )
-                    .scalar()
-                ) or 0
+                ad_purchase_kop = _sum_ops_amount_kop(OperationType.EXPENSE.value, ad_purchase_cat_id)
             ad_purchase_kop = int(ad_purchase_kop or 0)
 
             # Churn: sum joins/leaves by date range inclusive using ChannelDailyChurn
@@ -220,26 +218,22 @@ async def cmd_cashflow(message: Message) -> None:
             # Use local dates inclusive for PostSnapshot.snapshot_date and posted_at window
             start_utc = fin_start.astimezone(timezone.utc)
             end_utc = fin_end.astimezone(timezone.utc)
-            posts_count = (
-                s.query(func.count(PostSnapshot.id))
+            # Deduplicate posts by message_id and take max(views) per post for the window
+            pv_sub = (
+                s.query(
+                    PostSnapshot.channel_id.label("ch"),
+                    PostSnapshot.message_id.label("msg"),
+                    func.max(PostSnapshot.views).label("max_views"),
+                )
                 .filter(
                     PostSnapshot.channel_id.in_(ch_ids),
                     PostSnapshot.posted_at >= start_utc,
                     PostSnapshot.posted_at < end_utc,
                 )
-                .scalar()
-            ) or 0
-            posts_count = int(posts_count or 0)
-            views_sum = (
-                s.query(func.coalesce(func.sum(PostSnapshot.views), 0))
-                .filter(
-                    PostSnapshot.channel_id.in_(ch_ids),
-                    PostSnapshot.posted_at >= start_utc,
-                    PostSnapshot.posted_at < end_utc,
-                )
-                .scalar()
-            ) or 0
-            views_sum = int(views_sum or 0)
+                .group_by(PostSnapshot.channel_id, PostSnapshot.message_id)
+            ).subquery()
+            posts_count = int((s.query(func.count()).select_from(pv_sub).scalar() or 0))
+            views_sum = int((s.query(func.coalesce(func.sum(pv_sub.c.max_views), 0)).scalar() or 0))
 
             # Average subscribers over period using ChannelDailySnapshot
             start_date = fin_start.date()
@@ -335,7 +329,7 @@ async def cmd_cashflow(message: Message) -> None:
     week_block = build_period(week_start, week_end, week_label)
     month_block = build_period(month_start, month_next, month_label)
 
-    # Общий баланс средств (за всё время по активным каналам)
+    # Общий баланс средств (за всё время по активным каналам), без двойного учёта, включая общие операции
     with session_scope() as s:
         channels = (
             s.query(Channel)
@@ -347,26 +341,33 @@ async def cmd_cashflow(message: Message) -> None:
         income_all = 0
         expense_all = 0
         if ch_ids:
-            income_all = (
-                s.query(func.coalesce(func.sum(Operation.amount_kop), 0))
+            base_all = (
+                s.query(
+                    Operation.id.label("op_id"),
+                    Operation.op_type.label("op_type"),
+                    func.max(Operation.amount_kop).label("amt"),
+                )
                 .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
                 .filter(
-                    Operation.op_type == OperationType.INCOME.value,
                     Operation.is_general.is_(False),
                     OperationChannel.c.channel_id.in_(ch_ids),
                 )
-                .scalar()
-            ) or 0
-            expense_all = (
-                s.query(func.coalesce(func.sum(Operation.amount_kop), 0))
-                .join(OperationChannel, OperationChannel.c.operation_id == Operation.id)
-                .filter(
-                    Operation.op_type == OperationType.EXPENSE.value,
-                    Operation.is_general.is_(False),
-                    OperationChannel.c.channel_id.in_(ch_ids),
-                )
-                .scalar()
-            ) or 0
+                .group_by(Operation.id, Operation.op_type)
+            ).subquery()
+            income_all = int((s.query(func.coalesce(func.sum(base_all.c.amt), 0)).filter(base_all.c.op_type == OperationType.INCOME.value).scalar() or 0))
+            expense_all = int((s.query(func.coalesce(func.sum(base_all.c.amt), 0)).filter(base_all.c.op_type == OperationType.EXPENSE.value).scalar() or 0))
+
+            # Add general operations
+            gen_income = int((s.query(func.coalesce(func.sum(Operation.amount_kop), 0)).filter(
+                Operation.is_general.is_(True),
+                Operation.op_type == OperationType.INCOME.value,
+            ).scalar() or 0))
+            gen_expense = int((s.query(func.coalesce(func.sum(Operation.amount_kop), 0)).filter(
+                Operation.is_general.is_(True),
+                Operation.op_type == OperationType.EXPENSE.value,
+            ).scalar() or 0))
+            income_all += gen_income
+            expense_all += gen_expense
         income_all = int(income_all or 0)
         expense_all = int(expense_all or 0)
         balance_all = income_all - expense_all
