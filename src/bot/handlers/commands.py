@@ -194,6 +194,17 @@ async def cmd_cashflow(message: Message) -> None:
                 ad_purchase_kop = _sum_ops_amount_kop(OperationType.EXPENSE.value, ad_purchase_cat_id)
             ad_purchase_kop = int(ad_purchase_kop or 0)
 
+            # Personal investments separated from expenses
+            personal_invest_cat = s.query(Category.id).filter(Category.code == "personal_invest").one_or_none()
+            personal_invest_cat_id = personal_invest_cat[0] if personal_invest_cat else None
+            personal_invest_kop = 0
+            if personal_invest_cat_id is not None:
+                personal_invest_kop = _sum_ops_amount_kop(OperationType.EXPENSE.value, personal_invest_cat_id)
+            personal_invest_kop = int(personal_invest_kop or 0)
+
+            # Operational expenses = all expenses minus personal investments
+            op_expense_kop = int(expense_kop) - int(personal_invest_kop)
+
             # Churn: sum joins/leaves by date range inclusive using ChannelDailyChurn
             start_date = fin_start.date()
             end_date = (fin_end - timedelta(seconds=1)).date()
@@ -211,7 +222,7 @@ async def cmd_cashflow(message: Message) -> None:
             )
             net_new = int(joins_sum or 0) - int(leaves_sum or 0)
 
-            profit_kop = int(income_kop) - int(expense_kop)
+            profit_kop = int(income_kop) - int(op_expense_kop)
 
             # Posts and views for period
             # Count posts by posted_at; sum views from PostSnapshot within date range
@@ -271,8 +282,9 @@ async def cmd_cashflow(message: Message) -> None:
             lines: list[str] = []
             lines.append(f"<b>{label}</b>")
             lines.append(f"Доход: {fmt_money(int(income_kop))}")
-            lines.append(f"Расходы: {fmt_money(int(expense_kop))}")
-            lines.append(f"Прибыль: {fmt_money(int(profit_kop))}")
+            lines.append(f"Расходы (без личных вложений): {fmt_money(int(op_expense_kop))}")
+            lines.append(f"Личные вложения: {fmt_money(int(personal_invest_kop))}")
+            lines.append(f"Маржа: {fmt_money(int(profit_kop))}")
             lines.append(f"Маржинальность: {margin_txt}")
             # Additional helpful items
             lines.append(f"Закупка рекламы: {fmt_money(int(ad_purchase_kop))}")
@@ -285,13 +297,13 @@ async def cmd_cashflow(message: Message) -> None:
             expense_per_post_txt = "-"
             if posts_count > 0:
                 income_per_post_txt = f"{(income_kop/100.0)/posts_count:,.2f} ₽".replace(",", " ")
-                expense_per_post_txt = f"{(expense_kop/100.0)/posts_count:,.2f} ₽".replace(",", " ")
+                expense_per_post_txt = f"{(op_expense_kop/100.0)/posts_count:,.2f} ₽".replace(",", " ")
             # RPM/CPM (на 1000 просмотров)
             rpm_txt = "-"
             cpm_txt = "-"
             if views_sum and views_sum > 0:
                 rpm_txt = f"{(income_kop/100.0)/(views_sum/1000.0):,.2f} ₽".replace(",", " ")
-                cpm_txt = f"{(expense_kop/100.0)/(views_sum/1000.0):,.2f} ₽".replace(",", " ")
+                cpm_txt = f"{(op_expense_kop/100.0)/(views_sum/1000.0):,.2f} ₽".replace(",", " ")
             # ARPU (доход на средн. подписчика за период)
             arpu_txt = "-"
             if avg_subs and avg_subs > 0:
