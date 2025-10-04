@@ -161,7 +161,7 @@ async def inline_operations_history(cb: CallbackQuery) -> None:
             .all()
         )
         cat_by_id = {c.id: c for c in s.query(Category).all()}
-        # build map of operation_id -> channels count and titles
+        # build map of operation_id -> channel ids
         op_ids = [r.id for r in rows]
         ch_map: dict[int, list[int]] = {}
         if op_ids:
@@ -170,6 +170,18 @@ async def inline_operations_history(cb: CallbackQuery) -> None:
             )
             for op_id, ch_id in res:
                 ch_map.setdefault(int(op_id), []).append(int(ch_id))
+        # fetch channel titles for all involved ids
+        all_ch_ids = {cid for ids in ch_map.values() for cid in ids}
+        ch_title_by_id: dict[int, str] = {}
+        if all_ch_ids:
+            ch_rows = (
+                s.query(Channel.id, Channel.title, Channel.username, Channel.tg_chat_id)
+                .filter(Channel.id.in_(list(all_ch_ids)))
+                .all()
+            )
+            ch_title_by_id = {
+                row.id: (row.title or row.username or str(row.tg_chat_id)) for row in ch_rows
+            }
         # prepare text
         lines: list[str] = ["Последние 10 транзакций:"]
         for r in rows:
@@ -180,7 +192,11 @@ async def inline_operations_history(cb: CallbackQuery) -> None:
                 channels_txt = "общая"
             else:
                 ch_ids = ch_map.get(r.id, [])
-                channels_txt = f"каналов: {len(ch_ids)}" if ch_ids else "каналов: 0"
+                if ch_ids:
+                    names = [ch_title_by_id.get(cid, str(cid)) for cid in ch_ids]
+                    channels_txt = ", ".join(names)
+                else:
+                    channels_txt = "—"
             dt = r.created_at
             try:
                 dt_txt = dt.strftime("%d.%m.%Y %H:%M")
