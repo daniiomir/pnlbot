@@ -7,10 +7,12 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
 from bot.db.base import session_scope
-from bot.db.models import Channel, User
+from bot.db.models import Channel, User, Operation, Category, OperationChannel
 from bot.keyboards.channels import channels_main_menu_kb, channel_actions_kb, channels_inline_menu_kb
+from bot.keyboards.common import back_to_main_menu_kb
 from bot.services.time import now_msk
 from bot.services.channel_stats import collect_for_channel
+from bot.types.enums import OperationType
 
 logger = logging.getLogger()
 
@@ -136,6 +138,73 @@ async def inline_list_channels(cb: CallbackQuery) -> None:
     for ch_id, title, username, tg_chat_id, is_active in rows:
         text = f"{title or username or tg_chat_id} — {'активен' if is_active else 'на паузе'}"
         await cb.message.answer(text, reply_markup=channel_actions_kb(ch_id))
+    await cb.answer()
+
+
+@router.callback_query(F.data == "operations:history")
+async def inline_operations_history(cb: CallbackQuery) -> None:
+    uid = cb.from_user.id if cb.from_user else None
+    if uid is None:
+        await cb.answer("Техническая ошибка", show_alert=True)
+        return
+    with session_scope() as s:
+        user = s.query(User).filter(User.tg_user_id == uid).one_or_none()
+        if user is None:
+            await cb.answer("Пользователь не найден", show_alert=True)
+            return
+        # fetch last 10 operations created by this user
+        rows = (
+            s.query(
+                Operation.id,
+                Operation.created_at,
+                Operation.op_type,
+                Operation.category_id,
+                Operation.amount_kop,
+                Operation.is_general,
+                Operation.receipt_url,
+                Operation.comment,
+            )
+            .filter(Operation.created_by_user_id == user.id)
+            .order_by(Operation.id.desc())
+            .limit(10)
+            .all()
+        )
+        cat_by_id = {c.id: c for c in s.query(Category).all()}
+        # build map of operation_id -> channels count and titles
+        op_ids = [r.id for r in rows]
+        ch_map: dict[int, list[int]] = {}
+        if op_ids:
+            res = s.execute(
+                OperationChannel.select().where(OperationChannel.c.operation_id.in_(op_ids))
+            )
+            for op_id, ch_id in res:
+                ch_map.setdefault(int(op_id), []).append(int(ch_id))
+        # prepare text
+        lines: list[str] = ["Последние 10 транзакций:"]
+        for r in rows:
+            op_type_txt = "Доход" if r.op_type == OperationType.INCOME.value else "Расход"
+            cat_name = cat_by_id.get(r.category_id).name if cat_by_id.get(r.category_id) else str(r.category_id)
+            rub = int(r.amount_kop) // 100
+            if r.is_general:
+                channels_txt = "общая"
+            else:
+                ch_ids = ch_map.get(r.id, [])
+                channels_txt = f"каналов: {len(ch_ids)}" if ch_ids else "каналов: 0"
+            dt = r.created_at
+            try:
+                dt_txt = dt.strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                dt_txt = str(dt)
+            lines.append(f"{dt_txt} · {op_type_txt} · {cat_name} · {rub} RUB · {channels_txt}")
+            if r.receipt_url:
+                lines.append(f"  Чек: {r.receipt_url}")
+            if r.comment:
+                lines.append(f"  Комментарий: {r.comment}")
+            lines.append("")
+
+    if len(lines) == 1:
+        lines.append("Пока нет операций.")
+    await cb.message.edit_text("\n".join(lines), reply_markup=back_to_main_menu_kb())
     await cb.answer()
 
 

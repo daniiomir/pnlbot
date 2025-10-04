@@ -66,3 +66,9 @@ def options_menu_kb(notify_on: bool) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="channels:menu")],
         ]
     )
+
+
+def back_to_main_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🏠 Главное меню", callback_data="channels:menu")]]
+    )

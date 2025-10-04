@@ -29,6 +29,7 @@ def channels_inline_menu_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить канал", callback_data="channels:add")],
             [InlineKeyboardButton(text="📋 Список каналов", callback_data="channels:list")],
+            [InlineKeyboardButton(text="🧾 История транзакций", callback_data="operations:history")],
             [InlineKeyboardButton(text="⚙️ Опции", callback_data="options:menu")],
         ]
     )

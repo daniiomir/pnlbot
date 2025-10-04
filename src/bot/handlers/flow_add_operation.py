@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy.exc import IntegrityError
 
-from bot.keyboards.common import operation_type_kb, yes_no_kb, categories_kb, channels_kb, skip_kb
+from bot.keyboards.common import operation_type_kb, yes_no_kb, categories_kb, channels_kb, skip_kb, back_to_main_menu_kb
 from bot.types.enums import OperationType, INCOME_CATEGORY_CODES, EXPENSE_CATEGORY_CODES
 from bot.services.parsing import parse_amount_rub_to_kop, AmountParseError
 from bot.services.time import now_msk
@@ -410,5 +410,5 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
             return
 
     await state.clear()
-    await callback.message.edit_text("Операция сохранена.")
+    await callback.message.edit_text("Операция сохранена.", reply_markup=back_to_main_menu_kb())
     await callback.answer()
