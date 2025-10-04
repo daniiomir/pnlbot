@@ -256,10 +256,11 @@ async def cmd_cashflow(message: Message) -> None:
             avg_subs = int(avg_subs or 0)
 
             def fmt_money(kop: int) -> str:
-                rub = int(kop) // 100
-                cnt = abs(int(kop)) % 100
-                sign = "" if kop >= 0 else "-"
-                return f"{sign}{rub:,}.{cnt:02d} ₽".replace(",", " ")
+                total_kop = int(kop)
+                rub_abs = abs(total_kop) // 100
+                cnt_abs = abs(total_kop) % 100
+                sign = "" if total_kop >= 0 else "-"
+                return f"{sign}{rub_abs:,}.{cnt_abs:02d} ₽".replace(",", " ")
 
             # CPS with net joins: ad purchase spend / max(net_new,1) to avoid division by zero.
             cps_txt = "-"
@@ -267,22 +268,24 @@ async def cmd_cashflow(message: Message) -> None:
                 cps_rub = (ad_purchase_kop / 100.0) / float(net_new)
                 cps_txt = f"{cps_rub:,.2f} ₽".replace(",", " ")
 
+            # Маржинальность: прибыль/доход
+            margin_txt = "-"
+            if income_kop:
+                margin = (float(profit_kop) / float(income_kop)) * 100.0
+                margin_txt = f"{margin:.1f}%"
+
             lines: list[str] = []
             lines.append(f"<b>{label}</b>")
             lines.append(f"Доход: {fmt_money(int(income_kop))}")
             lines.append(f"Расходы: {fmt_money(int(expense_kop))}")
             lines.append(f"Прибыль: {fmt_money(int(profit_kop))}")
+            lines.append(f"Маржинальность: {margin_txt}")
             # Additional helpful items
             lines.append(f"Закупка рекламы: {fmt_money(int(ad_purchase_kop))}")
             lines.append(f"Вступления: {int(joins_sum or 0)}, Отписки: {int(leaves_sum or 0)}, Чистый прирост: {net_new}")
             lines.append(f"CPS (расход на 1 чистого подписчика): {cps_txt}")
 
             # Extended metrics
-            # Маржа
-            margin_txt = "-"
-            if income_kop:
-                margin = (float(profit_kop) / float(income_kop)) * 100.0
-                margin_txt = f"{margin:.1f}%"
             # Доход/расход на пост
             income_per_post_txt = "-"
             expense_per_post_txt = "-"
@@ -307,7 +310,6 @@ async def cmd_cashflow(message: Message) -> None:
 
             lines.append("")
             lines.append("— Доп. метрики —")
-            lines.append(f"Маржа: {margin_txt}")
             lines.append(f"Доход/пост: {income_per_post_txt}")
             lines.append(f"Расход/пост: {expense_per_post_txt}")
             lines.append(f"RPM (доход/1000 просмотров): {rpm_txt}")
