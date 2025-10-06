@@ -144,7 +144,7 @@ async def inline_list_channels(cb: CallbackQuery) -> None:
 @router.callback_query(F.data == "operations:history")
 async def inline_operations_history(cb: CallbackQuery) -> None:
     with session_scope() as s:
-        # fetch last 10 operations globally
+        # fetch last 20 operations globally
         rows = (
             s.query(
                 Operation.id,
@@ -157,7 +157,7 @@ async def inline_operations_history(cb: CallbackQuery) -> None:
                 Operation.comment,
             )
             .order_by(Operation.id.desc())
-            .limit(10)
+            .limit(20)
             .all()
         )
         cat_by_id = {c.id: c for c in s.query(Category).all()}
@@ -183,7 +183,7 @@ async def inline_operations_history(cb: CallbackQuery) -> None:
                 row.id: (row.title or row.username or str(row.tg_chat_id)) for row in ch_rows
             }
         # prepare text
-        lines: list[str] = ["Последние 10 транзакций:"]
+        lines: list[str] = ["Последние 20 транзакций:"]
         for r in rows:
             op_type_txt = "Доход" if r.op_type == OperationType.INCOME.value else "Расход"
             cat_name = cat_by_id.get(r.category_id).name if cat_by_id.get(r.category_id) else str(r.category_id)
