@@ -20,7 +20,8 @@ def operation_type_kb() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="Доход", callback_data="op_type:income"),
                 InlineKeyboardButton(text="Расход", callback_data="op_type:expense"),
-            ]
+            ],
+            [InlineKeyboardButton(text="Личные вложения", callback_data="op_type:invest")],
         ]
     )
 

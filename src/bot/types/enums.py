@@ -6,6 +6,7 @@ from enum import IntEnum
 class OperationType(IntEnum):
     INCOME = 1
     EXPENSE = 2
+    PERSONAL_INVEST = 3
 
 
 DEFAULT_CATEGORY_SEED = [
@@ -22,7 +23,8 @@ DEFAULT_CATEGORY_SEED = [
 
 # Category groups used for UI filtering
 INCOME_CATEGORY_CODES = {"ad_revenue", "ad_revenue_rsy", "ad_revenue_bk", "custom"}
-EXPENSE_CATEGORY_CODES = {"admins_pay", "ad_purchase", "personal_invest", "services_costs", "it_infra_costs", "custom"}
+EXPENSE_CATEGORY_CODES = {"admins_pay", "ad_purchase", "services_costs", "it_infra_costs", "custom"}
+INVEST_CATEGORY_CODES = {"personal_invest", "custom"}
 
 
 __all__ = [
@@ -30,4 +32,5 @@ __all__ = [
     "DEFAULT_CATEGORY_SEED",
     "INCOME_CATEGORY_CODES",
     "EXPENSE_CATEGORY_CODES",
+    "INVEST_CATEGORY_CODES",
 ]

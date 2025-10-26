@@ -31,7 +31,8 @@ async def cmd_start(message: Message) -> None:
             "Я помогу учитывать доходы/расходы по каналам и смотреть охваты.\n\n"
             "<b>⚡ Быстрый старт</b>\n"
             "• <b>/in</b> — добавить доход (сразу к выбору категории)\n"
-            "• <b>/out</b> — добавить расход (сразу к выбору категории)\n\n"
+            "• <b>/out</b> — добавить расход (сразу к выбору категории)\n"
+            "• <b>/invest</b> — добавить личные вложения (сразу выбор категории)\n\n"
             "<b>🧭 Полный сценарий</b>\n"
             "• <b>/add</b> — добавить операцию пошагово\n"
             "• <b>/cancel</b> — отменить текущую операцию\n"
@@ -194,16 +195,24 @@ async def cmd_cashflow(message: Message) -> None:
                 ad_purchase_kop = _sum_ops_amount_kop(OperationType.EXPENSE.value, ad_purchase_cat_id)
             ad_purchase_kop = int(ad_purchase_kop or 0)
 
-            # Personal investments separated from expenses
-            personal_invest_cat = s.query(Category.id).filter(Category.code == "personal_invest").one_or_none()
-            personal_invest_cat_id = personal_invest_cat[0] if personal_invest_cat else None
-            personal_invest_kop = 0
-            if personal_invest_cat_id is not None:
-                personal_invest_kop = _sum_ops_amount_kop(OperationType.EXPENSE.value, personal_invest_cat_id)
-            personal_invest_kop = int(personal_invest_kop or 0)
+            # Personal investments: support new op type and legacy expense category
+            new_personal_invest_kop = _sum_ops_amount_kop(OperationType.PERSONAL_INVEST.value)
+            new_personal_invest_kop = int(new_personal_invest_kop or 0)
+            legacy_personal_invest_cat = (
+                s.query(Category.id).filter(Category.code == "personal_invest").one_or_none()
+            )
+            legacy_personal_invest_cat_id = legacy_personal_invest_cat[0] if legacy_personal_invest_cat else None
+            legacy_personal_invest_kop = 0
+            if legacy_personal_invest_cat_id is not None:
+                legacy_personal_invest_kop = _sum_ops_amount_kop(
+                    OperationType.EXPENSE.value, legacy_personal_invest_cat_id
+                )
+            legacy_personal_invest_kop = int(legacy_personal_invest_kop or 0)
+            personal_invest_kop = int(new_personal_invest_kop) + int(legacy_personal_invest_kop)
 
-            # Operational expenses = all expenses minus personal investments
-            op_expense_kop = int(expense_kop) - int(personal_invest_kop)
+            # Operational expenses = all expenses minus legacy personal investments
+            # (new-type investments are not in expense_kop by definition)
+            op_expense_kop = int(expense_kop) - int(legacy_personal_invest_kop)
 
             # Churn: sum joins/leaves by date range inclusive using ChannelDailyChurn
             start_date = fin_start.date()

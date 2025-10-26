@@ -12,7 +12,7 @@ from aiogram.types import Message, CallbackQuery
 from sqlalchemy.exc import IntegrityError
 
 from bot.keyboards.common import operation_type_kb, yes_no_kb, categories_kb, channels_kb, skip_kb, back_to_main_menu_kb
-from bot.types.enums import OperationType, INCOME_CATEGORY_CODES, EXPENSE_CATEGORY_CODES
+from bot.types.enums import OperationType, INCOME_CATEGORY_CODES, EXPENSE_CATEGORY_CODES, INVEST_CATEGORY_CODES
 from bot.services.parsing import parse_amount_rub_to_kop, AmountParseError
 from bot.services.time import now_msk
 from bot.services.dedup import build_dedup_hash
@@ -68,7 +68,12 @@ def _channels_prompt(selected: list[int]) -> str:
 
 async def _show_confirmation(target, state: FSMContext) -> None:
     data = await state.get_data()
-    op_type = "Доход" if data.get("op_type") == OperationType.INCOME.value else "Расход"
+    if data.get("op_type") == OperationType.INCOME.value:
+        op_type = "Доход"
+    elif data.get("op_type") == OperationType.PERSONAL_INVEST.value:
+        op_type = "Личные вложения"
+    else:
+        op_type = "Расход"
     channels = data.get("channel_ids") or []
     cat_name = data.get("category_name")
     if not cat_name:
@@ -142,6 +147,24 @@ async def cmd_out(message: Message, state: FSMContext) -> None:
     await message.answer("Выберите категорию расхода:", reply_markup=categories_kb(items))
 
 
+@router.message(Command("invest"))
+async def cmd_invest(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await state.update_data(op_type=OperationType.PERSONAL_INVEST.value)
+    with session_scope() as s:
+        cats = (
+            s.query(Category)
+            .filter(Category.is_active.is_(True))
+            .order_by(Category.name)
+            .all()
+        )
+        items: list[tuple[int, str, str]] = [
+            (c.id, c.name, c.code) for c in cats if c.code in INVEST_CATEGORY_CODES
+        ]
+    await state.set_state(AddOpStates.choosing_category)
+    await message.answer("Выберите категорию личных вложений:", reply_markup=categories_kb(items))
+
+
 @router.callback_query(F.data.startswith("op_type:"), AddOpStates.choosing_type)
 async def choose_type(callback: CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":", 1)[1]
@@ -149,10 +172,17 @@ async def choose_type(callback: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(op_type=OperationType.INCOME.value)
         filter_codes = INCOME_CATEGORY_CODES
         title = "Выберите категорию дохода:"
-    else:
+    elif action == "expense":
         await state.update_data(op_type=OperationType.EXPENSE.value)
         filter_codes = EXPENSE_CATEGORY_CODES
         title = "Выберите категорию расхода:"
+    elif action == "invest":
+        await state.update_data(op_type=OperationType.PERSONAL_INVEST.value)
+        filter_codes = INVEST_CATEGORY_CODES
+        title = "Выберите категорию личных вложений:"
+    else:
+        await callback.answer("Неизвестный тип", show_alert=True)
+        return
 
     with session_scope() as s:
         cats = (
@@ -395,7 +425,12 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
                     OperationChannel.select().where(OperationChannel.c.operation_id == existing.id)
                 )
                 channels_count = len(list(res))
-                op_type_txt = "Доход" if existing.op_type == OperationType.INCOME.value else "Расход"
+                if existing.op_type == OperationType.INCOME.value:
+                    op_type_txt = "Доход"
+                elif existing.op_type == OperationType.PERSONAL_INVEST.value:
+                    op_type_txt = "Личные вложения"
+                else:
+                    op_type_txt = "Расход"
                 rub = existing.amount_kop // 100
                 await callback.message.edit_text(
                     f"Дубликат: уже есть операция #{existing.id}\n"

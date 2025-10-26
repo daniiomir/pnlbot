@@ -185,7 +185,12 @@ async def inline_operations_history(cb: CallbackQuery) -> None:
         # prepare text
         lines: list[str] = ["Последние 20 транзакций:"]
         for r in rows:
-            op_type_txt = "Доход" if r.op_type == OperationType.INCOME.value else "Расход"
+            if r.op_type == OperationType.INCOME.value:
+                op_type_txt = "Доход"
+            elif r.op_type == OperationType.PERSONAL_INVEST.value:
+                op_type_txt = "Личные вложения"
+            else:
+                op_type_txt = "Расход"
             cat_name = cat_by_id.get(r.category_id).name if cat_by_id.get(r.category_id) else str(r.category_id)
             rub = int(r.amount_kop) // 100
             if r.is_general:
@@ -223,7 +228,8 @@ async def inline_main_menu(cb: CallbackQuery) -> None:
             "Я помогу учитывать доходы/расходы по каналам и смотреть охваты.\n\n"
             "<b>⚡ Быстрый старт</b>\n"
             "• <b>/in</b> — добавить доход (сразу к выбору категории)\n"
-            "• <b>/out</b> — добавить расход (сразу к выбору категории)\n\n"
+                "• <b>/out</b> — добавить расход (сразу к выбору категории)\n"
+                "• <b>/invest</b> — добавить личные вложения (сразу выбор категории)\n\n"
             "<b>🧭 Полный сценарий</b>\n"
             "• <b>/add</b> — добавить операцию пошагово\n"
             "• <b>/cancel</b> — отменить текущую операцию\n"
