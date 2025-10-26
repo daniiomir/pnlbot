@@ -37,10 +37,10 @@ def add_daily_job(bot: Bot) -> None:
         except Exception:
             logger.exception("Daily collection job failed")
 
-    # Run at 00:05 MSK daily to avoid boundary effects
-    trigger = CronTrigger(hour=0, minute=5, timezone=MSK_TZ)
+    # Run at 23:45 MSK daily
+    trigger = CronTrigger(hour=23, minute=45, timezone=MSK_TZ)
     scheduler.add_job(_job_wrapper, trigger, id="daily_collect", replace_existing=True)
-    logger.info("Daily job scheduled at 00:05 MSK")
+    logger.info("Daily job scheduled at 23:45 MSK")
 
     async def _notify_job() -> None:
         try:
